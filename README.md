@@ -31,7 +31,7 @@ SHELL_FOREGROUND → GAME_STARTING → GAME_FOREGROUND
     └────── TERMINATING_GAME ←── PLAYOS_UI_FOREGROUND_WITH_GAME_BACKGROUND
 ```
 
-See [`playos-spec/playos-compositor-spec.md`](https://github.com/your-org/playos-spec/blob/main/playos-compositor-spec.md) for the full specification.
+See [`playos-spec/playos-compositor-spec.md`](https://github.com/PlayOS-Foundation/playos-spec/blob/main/playos-compositor-spec.md) for the full specification.
 
 ## Building
 

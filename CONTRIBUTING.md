@@ -2,7 +2,7 @@
 
 ## Architecture First
 
-Before writing code, check [`playos-spec`](https://github.com/your-org/playos-spec) for the relevant specification document. Every component has a spec. If your change affects the public `libplayos` API, read `platform-api.md` first.
+Before writing code, check [`playos-spec`](https://github.com/PlayOS-Foundation/playos-spec) for the relevant specification document. Every component has a spec. If your change affects the public `libplayos` API, read `platform-api.md` first.
 
 ## Branching
 

@@ -5,10 +5,10 @@ This repository implements the **PlayOS Wayland compositor** — a wlroots-based
 ## Specification Reference
 
 Before touching any file here, read:
-- [`playos-spec/src/playos-compositor-spec.md`](https://github.com/your-org/playos-spec/blob/main/src/playos-compositor-spec.md) — full state machine, surface policy, trust model
-- [`playos-spec/src/architecture.md`](https://github.com/your-org/playos-spec/blob/main/src/architecture.md) — system context and compositor's role
-- [`playos-spec/src/wayland-protocol.md`](https://github.com/your-org/playos-spec/blob/main/src/wayland-protocol.md) — private protocol the compositor implements (server side)
-- [`playos-spec/src/security-model.md`](https://github.com/your-org/playos-spec/blob/main/src/security-model.md) — what clients are trusted, what are not
+- [`playos-spec/src/playos-compositor-spec.md`](https://github.com/PlayOS-Foundation/playos-spec/blob/main/src/playos-compositor-spec.md) — full state machine, surface policy, trust model
+- [`playos-spec/src/architecture.md`](https://github.com/PlayOS-Foundation/playos-spec/blob/main/src/architecture.md) — system context and compositor's role
+- [`playos-spec/src/wayland-protocol.md`](https://github.com/PlayOS-Foundation/playos-spec/blob/main/src/wayland-protocol.md) — private protocol the compositor implements (server side)
+- [`playos-spec/src/security-model.md`](https://github.com/PlayOS-Foundation/playos-spec/blob/main/src/security-model.md) — what clients are trusted, what are not
 
 ## Compositor State Machine — Core Contract
 
