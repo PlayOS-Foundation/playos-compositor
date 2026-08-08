@@ -23,10 +23,9 @@ playos_readiness_signal(struct playos_compositor *c)
         return;
     }
 
-    fprintf(f, "pid=%d\n", getpid());
-    fprintf(f, "socket=%s\n", c->socket_name);
-    fprintf(f, "backend=%s\n",
-            c->backend_type == PLAYOS_BACKEND_HEADLESS ? "headless" : "wayland");
-    fprintf(f, "ready=true\n");
+    fprintf(f, "pid=%d\nsocket=%s\nbackend=%s\nready=true\n",
+            getpid(), c->socket_name,
+            c->backend_type == PLAYOS_BACKEND_HEADLESS ? "headless" :
+            c->backend_type == PLAYOS_BACKEND_WAYLAND ? "wayland" : "drm");
     fclose(f);
 }

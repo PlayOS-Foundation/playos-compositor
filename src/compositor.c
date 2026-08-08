@@ -219,14 +219,7 @@ playos_compositor_start(struct playos_compositor *c)
     }
 
     /* ── Signal readiness ────────────────────────────── */
-    FILE *ready = fopen("/run/playos/compositor-ready", "w");
-    if (ready) {
-        fprintf(ready, "pid=%d\nsocket=%s\nbackend=%s\n",
-                getpid(), c->socket_name,
-                c->backend_type == PLAYOS_BACKEND_HEADLESS ? "headless" :
-                c->backend_type == PLAYOS_BACKEND_WAYLAND ? "wayland" : "drm");
-        fclose(ready);
-    }
+    playos_readiness_signal(c);
 
     c->state   = PLAYOS_STATE_READY;
     c->running = true;
