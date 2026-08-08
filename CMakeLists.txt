@@ -121,4 +121,32 @@ if(BUILD_TESTS)
         _POSIX_C_SOURCE=199309L
         _DEFAULT_SOURCE
     )
+
+    # Nested Wayland validation test (developer iteration)
+    add_executable(compositor-nested-test
+        tests/nested/test_nested.c
+        src/compositor.c
+        ${GEN_DIR}/xdg-shell-protocol.h
+        ${GEN_DIR}/xdg-shell-protocol.c
+    )
+    target_include_directories(compositor-nested-test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${GEN_DIR}
+        ${WAYLAND_SERVER_INCLUDE_DIRS}
+        ${WLROOTS_INCLUDE_DIRS}
+        ${PIXMAN_INCLUDE_DIRS}
+        ${XKBCOMMON_INCLUDE_DIRS}
+        ${WAYLAND_PROTOCOLS_INCLUDE_DIRS}
+    )
+    target_link_libraries(compositor-nested-test PRIVATE
+        ${WAYLAND_SERVER_LIBRARIES}
+        ${WLROOTS_LIBRARIES}
+        ${PIXMAN_LIBRARIES}
+        ${XKBCOMMON_LIBRARIES}
+    )
+    target_compile_definitions(compositor-nested-test PRIVATE
+        WLR_USE_UNSTABLE
+        _POSIX_C_SOURCE=199309L
+        _DEFAULT_SOURCE
+    )
 endif()
