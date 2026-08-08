@@ -118,7 +118,9 @@ playos_compositor_start(struct playos_compositor *c)
     c->new_xdg_surface.notify = handle_new_xdg_surface;
     wl_signal_add(&c->xdg_shell->events.new_surface, &c->new_xdg_surface);
 
-    /* Create Wayland socket */
+    /* Create Wayland socket — needs XDG_RUNTIME_DIR */
+    setenv("XDG_RUNTIME_DIR", "/run/playos", 0);
+
     const char *socket = wl_display_add_socket_auto(c->display);
     if (!socket) {
         fprintf(stderr, "playos-compositor: failed to add Wayland socket\n");
