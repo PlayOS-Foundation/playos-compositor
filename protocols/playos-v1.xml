@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="playos_v1">
+
+  <copyright>
+    Copyright © PlayOS contributors.
+    SPDX-License-Identifier: MIT
+  </copyright>
+
+  <description summary="PlayOS private console compositor protocol">
+    Private protocol between playos-compositor and trusted PlayOS clients.
+    Not exposed to untrusted game clients.
+
+    See playos-spec/wayland-protocol.md for the full specification.
+  </description>
+
+  <!-- ──────────────────────────────────────────────────────── -->
+  <!-- playos_manager_v1                                        -->
+  <!-- Global singleton — trusted clients bind this first      -->
+  <!-- ──────────────────────────────────────────────────────── -->
+
+  <interface name="playos_manager_v1" version="1">
+    <description summary="PlayOS compositor management interface"/>
+
+    <request name="register_shell">
+      <description summary="Identify this client as the trusted shell"/>
+    </request>
+
+    <request name="register_overlay">
+      <description summary="Identify this client as the trusted overlay"/>
+    </request>
+
+    <event name="compositor_state_changed">
+      <description summary="Compositor lifecycle state changed"/>
+      <arg name="state" type="uint" summary="playos_compositor_state enum value"/>
+    </event>
+
+    <enum name="compositor_state">
+      <entry name="shell_foreground"                          value="0"/>
+      <entry name="game_starting"                             value="1"/>
+      <entry name="game_foreground"                           value="2"/>
+      <entry name="playos_ui_foreground_with_game_background" value="3"/>
+      <entry name="terminating_game"                          value="4"/>
+    </enum>
+
+    <enum name="error">
+      <entry name="role_already_taken" value="0" summary="Another client already holds this role"/>
+      <entry name="permission_denied"  value="1" summary="Client is not trusted"/>
+    </enum>
+  </interface>
+
+  <!-- ──────────────────────────────────────────────────────── -->
+  <!-- playos_shell_v1                                          -->
+  <!-- Interface given to the registered trusted shell          -->
+  <!-- ──────────────────────────────────────────────────────── -->
+
+  <interface name="playos_shell_v1" version="1">
+    <description summary="Interface for the trusted PlayOS shell"/>
+
+    <request name="set_surface">
+      <description summary="Associate a wl_surface as the shell surface"/>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </request>
+
+    <request name="surface_ready">
+      <description summary="Shell has rendered its first frame"/>
+    </request>
+
+    <event name="lifecycle_event">
+      <description summary="Lifecycle event for the shell"/>
+      <arg name="event" type="uint" summary="playos_lifecycle_event enum value"/>
+    </event>
+
+    <event name="game_launched">
+      <description summary="A game process has been spawned"/>
+      <arg name="game_id" type="string"/>
+    </event>
+
+    <event name="game_exited">
+      <description summary="The active game exited or crashed"/>
+      <arg name="game_id"   type="string"/>
+      <arg name="exit_code" type="int"/>
+      <arg name="crashed"   type="uint" summary="1 if abnormal exit"/>
+    </event>
+
+    <enum name="playos_lifecycle_event">
+      <entry name="foreground" value="1"/>
+      <entry name="background" value="2"/>
+      <entry name="suspend"    value="3"/>
+      <entry name="resume"     value="4"/>
+      <entry name="terminate"  value="5"/>
+    </enum>
+  </interface>
+
+  <!-- ──────────────────────────────────────────────────────── -->
+  <!-- playos_overlay_v1                                        -->
+  <!-- Interface given to the registered trusted overlay        -->
+  <!-- ──────────────────────────────────────────────────────── -->
+
+  <interface name="playos_overlay_v1" version="1">
+    <description summary="Interface for the trusted PlayOS overlay"/>
+
+    <request name="set_surface">
+      <description summary="Associate a wl_surface as the overlay surface"/>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </request>
+
+    <request name="surface_ready">
+      <description summary="Overlay has rendered and is ready to display"/>
+    </request>
+
+    <request name="request_dismiss">
+      <description summary="Overlay requests to be hidden (e.g. user pressed Resume)"/>
+    </request>
+
+    <event name="about_to_show">
+      <description summary="Compositor is about to map the overlay"/>
+    </event>
+
+    <event name="about_to_hide">
+      <description summary="Compositor is about to unmap the overlay"/>
+    </event>
+
+    <event name="output_info">
+      <description summary="Current output dimensions for overlay layout"/>
+      <arg name="width"       type="int"/>
+      <arg name="height"      type="int"/>
+      <arg name="refresh_mhz" type="uint" summary="Refresh rate in mHz"/>
+      <arg name="scale_100"   type="uint" summary="Scale factor x100"/>
+    </event>
+  </interface>
+
+  <!-- ──────────────────────────────────────────────────────── -->
+  <!-- playos_game_launch_v1                                    -->
+  <!-- Notifies compositor of an incoming game connection       -->
+  <!-- ──────────────────────────────────────────────────────── -->
+
+  <interface name="playos_game_launch_v1" version="1">
+    <description summary="Interface for setting the expected game launch identity"/>
+
+    <request name="set_expected_game">
+      <description summary="Tell compositor which token to expect from the next game client"/>
+      <arg name="launch_token" type="string"/>
+      <arg name="game_id"      type="string"/>
+    </request>
+
+    <request name="clear_expected_game">
+      <description summary="Cancel the pending expected game"/>
+    </request>
+
+    <event name="game_surface_ready">
+      <description summary="Game committed its first valid buffer"/>
+      <arg name="launch_token" type="string"/>
+      <arg name="game_id"      type="string"/>
+    </event>
+
+    <event name="game_surface_destroyed">
+      <description summary="Game Wayland surface was destroyed or client disconnected"/>
+      <arg name="game_id" type="string"/>
+    </event>
+  </interface>
+
+</protocol>
