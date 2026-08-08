@@ -1,5 +1,7 @@
 # AGENTS.md — playos-compositor
 
+> **Implementation status:** 🔴 Pre-implementation — state machine and architecture defined in `playos-spec`. No source code yet (`CONTRIBUTING.md` only). This AGENTS.md describes the **target** structure.
+
 This repository implements the **PlayOS Wayland compositor** — a wlroots-based process that permanently owns the DRM/KMS device, manages all surfaces (shell, game, overlay), enforces the first-frame rule, and intercepts the system button at the libinput level.
 
 ## Specification Reference
