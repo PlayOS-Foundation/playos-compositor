@@ -5,6 +5,19 @@
 #include <signal.h>
 #include <unistd.h>
 
+/* ── Output configuration: use the state-based API (available 0.16+) ──── */
+static bool
+compositor_configure_output(struct wlr_output *output)
+{
+    struct wlr_output_state state;
+    wlr_output_state_init(&state);
+    wlr_output_state_set_custom_mode(&state, 1920, 1080, 60000);
+    wlr_output_state_set_enabled(&state, true);
+    bool ok = wlr_output_commit_state(output, &state);
+    wlr_output_state_finish(&state);
+    return ok;
+}
+
 static void handle_new_xdg_surface(struct wl_listener *listener, void *data);
 static void handle_new_output(struct wl_listener *listener, void *data);
 static void handle_signal(int sig);
@@ -40,7 +53,7 @@ playos_compositor_start(struct playos_compositor *c)
     else
         setenv("WLR_BACKENDS", "wayland", 1);
 
-    c->backend = wlr_backend_autocreate(c->display, NULL);
+    c->backend = wlr_backend_autocreate(c->event_loop, NULL);
     if (!c->backend) {
         fprintf(stderr, "playos-compositor: failed to create backend\n");
         wl_display_destroy(c->display);
@@ -72,7 +85,7 @@ playos_compositor_start(struct playos_compositor *c)
     }
 
     /* Output layout */
-    c->output_layout = wlr_output_layout_create();
+    c->output_layout = wlr_output_layout_create(c->display);
     if (!c->output_layout) {
         fprintf(stderr, "playos-compositor: failed to create output layout\n");
         wl_display_destroy(c->display);
@@ -181,9 +194,7 @@ handle_new_output(struct wl_listener *listener, void *data)
 
     /* Set output mode if needed for headless */
     if (c->backend_type == PLAYOS_BACKEND_HEADLESS) {
-        wlr_output_set_custom_mode(output, 1920, 1080, 60000);
-        wlr_output_enable(output, true);
-        if (!wlr_output_commit(output))
+        if (!compositor_configure_output(output))
             return;
     }
 

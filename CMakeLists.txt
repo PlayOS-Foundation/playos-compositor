@@ -9,11 +9,7 @@ set(CMAKE_C_EXTENSIONS OFF)
 find_package(PkgConfig REQUIRED)
 
 pkg_check_modules(WAYLAND_SERVER wayland-server REQUIRED)
-# wlroots 0.20 uses versioned pkg-config name (wlroots-0.20); 0.17 uses 'wlroots'
-pkg_check_modules(WLROOTS wlroots-0.20)
-if(NOT WLROOTS_FOUND)
-    pkg_check_modules(WLROOTS wlroots REQUIRED)
-endif()
+pkg_check_modules(WLROOTS wlroots-0.20 REQUIRED)
 pkg_check_modules(PIXMAN pixman-1 REQUIRED)
 pkg_check_modules(XKBCOMMON xkbcommon REQUIRED)
 pkg_check_modules(WAYLAND_PROTOCOLS wayland-protocols REQUIRED)
