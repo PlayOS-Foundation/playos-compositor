@@ -100,6 +100,8 @@ if(BUILD_TESTS)
     add_executable(compositor-headless-test
         tests/headless/test_headless.c
         src/compositor.c
+        ${GEN_DIR}/xdg-shell-protocol.h
+        ${GEN_DIR}/xdg-shell-protocol.c
     )
     target_include_directories(compositor-headless-test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
