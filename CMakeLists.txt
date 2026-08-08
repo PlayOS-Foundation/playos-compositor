@@ -10,9 +10,14 @@ find_package(PkgConfig REQUIRED)
 
 pkg_check_modules(WAYLAND_SERVER wayland-server REQUIRED)
 pkg_check_modules(WLROOTS wlroots-0.20 REQUIRED)
+# wlroots 0.20 — use add_definitions for unstable API access
+add_definitions(-DWLR_USE_UNSTABLE)
 pkg_check_modules(PIXMAN pixman-1 REQUIRED)
 pkg_check_modules(XKBCOMMON xkbcommon REQUIRED)
 pkg_check_modules(WAYLAND_PROTOCOLS wayland-protocols REQUIRED)
+pkg_check_modules(LIBDRM libdrm REQUIRED)
+pkg_check_modules(EGL egl REQUIRED)
+pkg_check_modules(GLES2 glesv2 REQUIRED)
 
 # ── Wayland scanner for protocols ──────────────────────────────
 find_program(WAYLAND_SCANNER wayland-scanner REQUIRED)
@@ -51,6 +56,11 @@ set(COMPOSITOR_SOURCES
     src/compositor.c
     src/trusted_client.c
     src/readiness.c
+    src/diagnostics.c
+    src/gpu_discovery.c
+    src/drm_backend.c
+    src/output_modes.c
+    src/renderer_gbm_egl.c
     ${GEN_DIR}/playos-v1-protocol.h
     ${GEN_DIR}/playos-v1-protocol.c
     ${GEN_DIR}/xdg-shell-protocol.h
@@ -61,12 +71,16 @@ add_executable(playos-compositor ${COMPOSITOR_SOURCES})
 
 target_include_directories(playos-compositor PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${GEN_DIR}
     ${WAYLAND_SERVER_INCLUDE_DIRS}
     ${WLROOTS_INCLUDE_DIRS}
     ${PIXMAN_INCLUDE_DIRS}
     ${XKBCOMMON_INCLUDE_DIRS}
     ${WAYLAND_PROTOCOLS_INCLUDE_DIRS}
+    ${LIBDRM_INCLUDE_DIRS}
+    ${EGL_INCLUDE_DIRS}
+    ${GLES2_INCLUDE_DIRS}
 )
 
 target_link_libraries(playos-compositor PRIVATE
@@ -74,10 +88,12 @@ target_link_libraries(playos-compositor PRIVATE
     ${WLROOTS_LIBRARIES}
     ${PIXMAN_LIBRARIES}
     ${XKBCOMMON_LIBRARIES}
+    ${LIBDRM_LIBRARIES}
+    ${EGL_LIBRARIES}
+    ${GLES2_LIBRARIES}
 )
 
 target_compile_definitions(playos-compositor PRIVATE
-    WLR_USE_UNSTABLE
     _POSIX_C_SOURCE=199309L
     _DEFAULT_SOURCE
 )
@@ -100,26 +116,37 @@ if(BUILD_TESTS)
     add_executable(compositor-headless-test
         tests/headless/test_headless.c
         src/compositor.c
+        src/diagnostics.c
+        src/gpu_discovery.c
+        src/drm_backend.c
+        src/output_modes.c
+        src/renderer_gbm_egl.c
         ${GEN_DIR}/xdg-shell-protocol.h
         ${GEN_DIR}/xdg-shell-protocol.c
     )
     target_include_directories(compositor-headless-test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${GEN_DIR}
         ${WAYLAND_SERVER_INCLUDE_DIRS}
         ${WLROOTS_INCLUDE_DIRS}
         ${PIXMAN_INCLUDE_DIRS}
         ${XKBCOMMON_INCLUDE_DIRS}
         ${WAYLAND_PROTOCOLS_INCLUDE_DIRS}
+        ${LIBDRM_INCLUDE_DIRS}
+        ${EGL_INCLUDE_DIRS}
+        ${GLES2_INCLUDE_DIRS}
     )
     target_link_libraries(compositor-headless-test PRIVATE
         ${WAYLAND_SERVER_LIBRARIES}
         ${WLROOTS_LIBRARIES}
         ${PIXMAN_LIBRARIES}
         ${XKBCOMMON_LIBRARIES}
+        ${LIBDRM_LIBRARIES}
+        ${EGL_LIBRARIES}
+        ${GLES2_LIBRARIES}
     )
     target_compile_definitions(compositor-headless-test PRIVATE
-        WLR_USE_UNSTABLE
         _POSIX_C_SOURCE=199309L
         _DEFAULT_SOURCE
     )
@@ -128,26 +155,37 @@ if(BUILD_TESTS)
     add_executable(compositor-nested-test
         tests/nested/test_nested.c
         src/compositor.c
+        src/diagnostics.c
+        src/gpu_discovery.c
+        src/drm_backend.c
+        src/output_modes.c
+        src/renderer_gbm_egl.c
         ${GEN_DIR}/xdg-shell-protocol.h
         ${GEN_DIR}/xdg-shell-protocol.c
     )
     target_include_directories(compositor-nested-test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${GEN_DIR}
         ${WAYLAND_SERVER_INCLUDE_DIRS}
         ${WLROOTS_INCLUDE_DIRS}
         ${PIXMAN_INCLUDE_DIRS}
         ${XKBCOMMON_INCLUDE_DIRS}
         ${WAYLAND_PROTOCOLS_INCLUDE_DIRS}
+        ${LIBDRM_INCLUDE_DIRS}
+        ${EGL_INCLUDE_DIRS}
+        ${GLES2_INCLUDE_DIRS}
     )
     target_link_libraries(compositor-nested-test PRIVATE
         ${WAYLAND_SERVER_LIBRARIES}
         ${WLROOTS_LIBRARIES}
         ${PIXMAN_LIBRARIES}
         ${XKBCOMMON_LIBRARIES}
+        ${LIBDRM_LIBRARIES}
+        ${EGL_LIBRARIES}
+        ${GLES2_LIBRARIES}
     )
     target_compile_definitions(compositor-nested-test PRIVATE
-        WLR_USE_UNSTABLE
         _POSIX_C_SOURCE=199309L
         _DEFAULT_SOURCE
     )

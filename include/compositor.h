@@ -15,12 +15,16 @@
 #include <wlr/types/wlr_seat.h>
 #include <wlr/util/log.h>
 
+/* Forward declarations for optional DRM/graphics modules */
+#include "diagnostics.h"
+
 /**
  * Backend selection for the compositor.
  */
 enum playos_backend {
     PLAYOS_BACKEND_HEADLESS,
     PLAYOS_BACKEND_WAYLAND,
+    PLAYOS_BACKEND_DRM,
 };
 
 /**

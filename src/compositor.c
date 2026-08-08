@@ -1,4 +1,9 @@
 #include "compositor.h"
+#include "diagnostics.h"
+#include "gpu_discovery.h"
+#include "drm_backend.h"
+#include "output_modes.h"
+#include "renderer_gbm_egl.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -39,109 +44,187 @@ playos_compositor_start(struct playos_compositor *c)
 {
     g_compositor = c;
 
+    playos_diag_log_phase(PLAYOS_DIAG_PHASE_INIT,
+                          "compositor starting");
+
     /* Create Wayland display */
     c->display = wl_display_create();
     if (!c->display) {
-        fprintf(stderr, "playos-compositor: failed to create wl_display\n");
+        playos_diag_fatal(PLAYOS_DIAG_PHASE_INIT,
+                          "failed to create wl_display");
         return -1;
     }
     c->event_loop = wl_display_get_event_loop(c->display);
 
-    /* Autostart backend */
-    if (c->backend_type == PLAYOS_BACKEND_HEADLESS)
-        setenv("WLR_BACKENDS", "headless", 1);
-    else
-        setenv("WLR_BACKENDS", "wayland", 1);
+    /* ── Backend selection ──────────────────────────── */
+    if (c->backend_type == PLAYOS_BACKEND_DRM) {
+        /* Native DRM/KMS path (Sprint 4) */
+        playos_diag_log_phase(PLAYOS_DIAG_PHASE_BACKEND_START,
+                              "using native DRM/KMS backend");
 
-    c->backend = wlr_backend_autocreate(c->event_loop, NULL);
-    if (!c->backend) {
-        fprintf(stderr, "playos-compositor: failed to create backend\n");
-        wl_display_destroy(c->display);
-        return -1;
+        /* GPU discovery (ADR-0008) */
+        struct playos_gpu gpu;
+        if (playos_gpu_discover(&gpu) != 0 || !gpu.valid) {
+            playos_diag_log_fallback("simpledrm",
+                                     "GPU discovery failed, attempting simpledrm fallback");
+            /* Try simpledrm fallback via headless — system may have simpledrm
+             * as a recovery framebuffer */
+            setenv("WLR_BACKENDS", "headless", 1);
+            c->backend = wlr_backend_autocreate(c->event_loop, NULL);
+            if (!c->backend) {
+                playos_diag_fatal(PLAYOS_DIAG_PHASE_FALLBACK,
+                                  "simpledrm/headless fallback also failed");
+                wl_display_destroy(c->display);
+                return -1;
+            }
+            wlr_log(WLR_INFO, "playos-compositor: using simpledrm/headless fallback");
+        } else {
+            /* Select best output using the discovered GPU */
+            struct playos_output_config output_cfg;
+            if (playos_output_select_from_fd(gpu.card_fd, &output_cfg) == 0) {
+                c->output_width       = output_cfg.width;
+                c->output_height      = output_cfg.height;
+                c->output_refresh_mhz = output_cfg.refresh_mhz;
+                c->output_scale_100   = output_cfg.scale_100;
+            }
+
+            /* DRM backend init — uses the discovered GPU */
+            if (playos_drm_backend_start(c, c->event_loop, c->display) != 0) {
+                playos_gpu_close(&gpu);
+                playos_diag_log_fallback("simpledrm",
+                                         "DRM backend start failed");
+                /* Attempt headless fallback */
+                setenv("WLR_BACKENDS", "headless", 1);
+                c->backend = wlr_backend_autocreate(c->event_loop, NULL);
+                if (!c->backend) {
+                    wl_display_destroy(c->display);
+                    return -1;
+                }
+                /* Recreate renderer/allocator for headless */
+                c->renderer = wlr_renderer_autocreate(c->backend);
+                if (c->renderer)
+                    wlr_renderer_init_wl_display(c->renderer, c->display);
+                c->allocator = wlr_allocator_autocreate(c->backend, c->renderer);
+            }
+            playos_gpu_close(&gpu);
+        }
+    } else {
+        /* Headless or nested Wayland (Sprint 2 path) */
+        if (c->backend_type == PLAYOS_BACKEND_HEADLESS)
+            setenv("WLR_BACKENDS", "headless", 1);
+        else
+            setenv("WLR_BACKENDS", "wayland", 1);
+
+        playos_diag_log_phase(PLAYOS_DIAG_PHASE_BACKEND_START,
+                              c->backend_type == PLAYOS_BACKEND_HEADLESS
+                              ? "using headless backend" : "using nested Wayland backend");
+
+        c->backend = wlr_backend_autocreate(c->event_loop, NULL);
+        if (!c->backend) {
+            playos_diag_fatal(PLAYOS_DIAG_PHASE_BACKEND_START,
+                              "failed to create backend");
+            wl_display_destroy(c->display);
+            return -1;
+        }
+
+        /* Renderer and allocator */
+        c->renderer = wlr_renderer_autocreate(c->backend);
+        if (!c->renderer) {
+            playos_diag_fatal(PLAYOS_DIAG_PHASE_BACKEND_START,
+                              "failed to create renderer");
+            wl_display_destroy(c->display);
+            return -1;
+        }
+        wlr_renderer_init_wl_display(c->renderer, c->display);
+
+        c->allocator = wlr_allocator_autocreate(c->backend, c->renderer);
+        if (!c->allocator) {
+            playos_diag_fatal(PLAYOS_DIAG_PHASE_BACKEND_START,
+                              "failed to create allocator");
+            wl_display_destroy(c->display);
+            return -1;
+        }
     }
 
-    /* Renderer and allocator */
-    c->renderer = wlr_renderer_autocreate(c->backend);
-    if (!c->renderer) {
-        fprintf(stderr, "playos-compositor: failed to create renderer\n");
-        wl_display_destroy(c->display);
-        return -1;
-    }
-    wlr_renderer_init_wl_display(c->renderer, c->display);
-
-    c->allocator = wlr_allocator_autocreate(c->backend, c->renderer);
-    if (!c->allocator) {
-        fprintf(stderr, "playos-compositor: failed to create allocator\n");
-        wl_display_destroy(c->display);
-        return -1;
+    /* ── Query renderer diagnostics (Sprint 4) ───────── */
+    if (c->renderer) {
+        struct playos_renderer_info rinfo;
+        playos_renderer_query(c->renderer, &rinfo);
     }
 
-    /* Scene graph */
+    /* ── Scene graph ─────────────────────────────────── */
     c->scene = wlr_scene_create();
     if (!c->scene) {
-        fprintf(stderr, "playos-compositor: failed to create scene\n");
+        playos_diag_fatal(PLAYOS_DIAG_PHASE_INIT,
+                          "failed to create scene");
         wl_display_destroy(c->display);
         return -1;
     }
 
-    /* Output layout */
+    /* ── Output layout ───────────────────────────────── */
     c->output_layout = wlr_output_layout_create(c->display);
     if (!c->output_layout) {
-        fprintf(stderr, "playos-compositor: failed to create output layout\n");
+        playos_diag_fatal(PLAYOS_DIAG_PHASE_INIT,
+                          "failed to create output layout");
         wl_display_destroy(c->display);
         return -1;
     }
 
-    /* Compositor (wl_compositor global) */
+    /* ── Compositor (wl_compositor global) ───────────── */
     wlr_compositor_create(c->display, 6, c->renderer);
 
-    /* XDG shell */
+    /* ── XDG shell ───────────────────────────────────── */
     c->xdg_shell = wlr_xdg_shell_create(c->display, 3);
     if (!c->xdg_shell) {
-        fprintf(stderr, "playos-compositor: failed to create xdg_shell\n");
+        playos_diag_fatal(PLAYOS_DIAG_PHASE_INIT,
+                          "failed to create xdg_shell");
         wl_display_destroy(c->display);
         return -1;
     }
 
-    /* Minimal seat */
+    /* ── Minimal seat ────────────────────────────────── */
     c->seat = wlr_seat_create(c->display, "seat0");
     if (!c->seat) {
-        fprintf(stderr, "playos-compositor: failed to create seat\n");
+        playos_diag_fatal(PLAYOS_DIAG_PHASE_INIT,
+                          "failed to create seat");
         wl_display_destroy(c->display);
         return -1;
     }
 
-    /* Setup listeners */
+    /* ── Setup listeners ─────────────────────────────── */
     c->new_output.notify = handle_new_output;
     wl_signal_add(&c->backend->events.new_output, &c->new_output);
 
     c->new_xdg_surface.notify = handle_new_xdg_surface;
     wl_signal_add(&c->xdg_shell->events.new_surface, &c->new_xdg_surface);
 
-    /* Create Wayland socket — needs XDG_RUNTIME_DIR */
+    /* ── Create Wayland socket ───────────────────────── */
     setenv("XDG_RUNTIME_DIR", "/run/playos", 0);
 
     const char *socket = wl_display_add_socket_auto(c->display);
     if (!socket) {
-        fprintf(stderr, "playos-compositor: failed to add Wayland socket\n");
+        playos_diag_fatal(PLAYOS_DIAG_PHASE_INIT,
+                          "failed to add Wayland socket");
         wl_display_destroy(c->display);
         return -1;
     }
     c->socket_name = socket;
 
-    /* Start backend */
+    /* ── Start backend ───────────────────────────────── */
     if (!wlr_backend_start(c->backend)) {
-        fprintf(stderr, "playos-compositor: failed to start backend\n");
+        playos_diag_fatal(PLAYOS_DIAG_PHASE_BACKEND_START,
+                          "failed to start backend");
         wl_display_destroy(c->display);
         return -1;
     }
 
-    /* Signal readiness: write a file to /run/playos/compositor-ready */
+    /* ── Signal readiness ────────────────────────────── */
     FILE *ready = fopen("/run/playos/compositor-ready", "w");
     if (ready) {
         fprintf(ready, "pid=%d\nsocket=%s\nbackend=%s\n",
                 getpid(), c->socket_name,
-                c->backend_type == PLAYOS_BACKEND_HEADLESS ? "headless" : "wayland");
+                c->backend_type == PLAYOS_BACKEND_HEADLESS ? "headless" :
+                c->backend_type == PLAYOS_BACKEND_WAYLAND ? "wayland" : "drm");
         fclose(ready);
     }
 
@@ -150,7 +233,11 @@ playos_compositor_start(struct playos_compositor *c)
 
     wlr_log(WLR_INFO, "playos-compositor: ready, socket=%s, backend=%s",
             c->socket_name,
-            c->backend_type == PLAYOS_BACKEND_HEADLESS ? "headless" : "wayland");
+            c->backend_type == PLAYOS_BACKEND_HEADLESS ? "headless" :
+            c->backend_type == PLAYOS_BACKEND_WAYLAND ? "wayland" : "drm");
+
+    playos_diag_log_phase(PLAYOS_DIAG_PHASE_RUNNING,
+                          "compositor ready");
 
     /* SIGTERM handling for clean shutdown */
     signal(SIGTERM, handle_signal);

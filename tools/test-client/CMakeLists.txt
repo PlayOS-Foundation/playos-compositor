@@ -1,5 +1,8 @@
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(WAYLAND_CLIENT wayland-client REQUIRED)
+pkg_check_modules(WAYLAND_EGL wayland-egl REQUIRED)
+pkg_check_modules(EGL egl REQUIRED)
+pkg_check_modules(GLES2 glesv2 REQUIRED)
 
 # Generate xdg-shell client bindings
 find_program(WAYLAND_SCANNER wayland-scanner REQUIRED)
@@ -26,10 +29,17 @@ add_executable(playos-test-client
 target_include_directories(playos-test-client PRIVATE
     ${GEN_DIR}
     ${WAYLAND_CLIENT_INCLUDE_DIRS}
+    ${WAYLAND_EGL_INCLUDE_DIRS}
+    ${EGL_INCLUDE_DIRS}
+    ${GLES2_INCLUDE_DIRS}
 )
 
 target_link_libraries(playos-test-client PRIVATE
     ${WAYLAND_CLIENT_LIBRARIES}
+    ${WAYLAND_EGL_LIBRARIES}
+    ${EGL_LIBRARIES}
+    ${GLES2_LIBRARIES}
+    m
 )
 
 target_compile_definitions(playos-test-client PRIVATE
