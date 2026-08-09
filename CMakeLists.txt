@@ -93,10 +93,6 @@ target_link_libraries(playos-compositor PRIVATE
     ${GLES2_LIBRARIES}
 )
 
-target_link_options(playos-compositor PRIVATE
-    -L/usr/local/lib/x86_64-linux-gnu
-)
-
 target_compile_definitions(playos-compositor PRIVATE
     _POSIX_C_SOURCE=199309L
     _DEFAULT_SOURCE
