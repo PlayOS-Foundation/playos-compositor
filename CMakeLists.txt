@@ -83,6 +83,16 @@ target_include_directories(playos-compositor PRIVATE
     ${GLES2_INCLUDE_DIRS}
 )
 
+target_link_directories(playos-compositor PRIVATE
+    ${WLROOTS_LIBRARY_DIRS}
+    ${WAYLAND_SERVER_LIBRARY_DIRS}
+    ${PIXMAN_LIBRARY_DIRS}
+    ${XKBCOMMON_LIBRARY_DIRS}
+    ${LIBDRM_LIBRARY_DIRS}
+    ${EGL_LIBRARY_DIRS}
+    ${GLES2_LIBRARY_DIRS}
+)
+
 target_link_libraries(playos-compositor PRIVATE
     ${WLROOTS_LIBRARIES}
     ${WAYLAND_SERVER_LIBRARIES}
