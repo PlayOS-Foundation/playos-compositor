@@ -83,6 +83,7 @@ struct playos_compositor {
     /* Signal listeners */
     struct wl_listener        new_output;
     struct wl_listener        new_xdg_surface;
+    struct wl_listener        frame;
 };
 
 void playos_compositor_init(struct playos_compositor *c, enum playos_backend backend);

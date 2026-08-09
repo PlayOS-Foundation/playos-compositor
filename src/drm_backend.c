@@ -16,8 +16,6 @@ playos_drm_backend_start(struct playos_compositor *c,
                          struct wl_event_loop *event_loop,
                          struct wl_display *display)
 {
-    (void)display;
-
     playos_diag_log_phase(PLAYOS_DIAG_PHASE_BACKEND_START,
                           "initializing native DRM/KMS backend");
 
@@ -42,7 +40,7 @@ playos_drm_backend_start(struct playos_compositor *c,
         return playos_diag_fatal(PLAYOS_DIAG_PHASE_BACKEND_START,
                                  "failed to create renderer");
     }
-    wlr_renderer_init_wl_display(c->renderer, c->display);
+    wlr_renderer_init_wl_display(c->renderer, display);
 
     /* Create allocator */
     c->allocator = wlr_allocator_autocreate(c->backend, c->renderer);

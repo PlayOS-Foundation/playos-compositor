@@ -25,6 +25,7 @@ compositor_configure_output(struct wlr_output *output)
 
 static void handle_new_xdg_surface(struct wl_listener *listener, void *data);
 static void handle_new_output(struct wl_listener *listener, void *data);
+static void handle_frame(struct wl_listener *listener, void *data);
 static void handle_signal(int sig);
 
 static struct playos_compositor *g_compositor = NULL;
@@ -88,9 +89,15 @@ playos_compositor_start(struct playos_compositor *c)
                 c->output_scale_100   = output_cfg.scale_100;
             }
 
+            /* Guide wlroots to the correct device via WLR_DRM_DEVICES */
+            setenv("WLR_DRM_DEVICES", gpu.card_path, 1);
+
+            /* Close the discovery fd — wlroots will open its own fd
+             * to the same device when the DRM backend starts. */
+            playos_gpu_close(&gpu);
+
             /* DRM backend init — uses the discovered GPU */
             if (playos_drm_backend_start(c, c->event_loop, c->display) != 0) {
-                playos_gpu_close(&gpu);
                 playos_diag_log_fallback("simpledrm",
                                          "DRM backend start failed");
                 /* Attempt headless fallback */
@@ -106,7 +113,6 @@ playos_compositor_start(struct playos_compositor *c)
                     wlr_renderer_init_wl_display(c->renderer, c->display);
                 c->allocator = wlr_allocator_autocreate(c->backend, c->renderer);
             }
-            playos_gpu_close(&gpu);
         }
     } else {
         /* Headless or nested Wayland (Sprint 2 path) */
@@ -255,8 +261,6 @@ playos_compositor_destroy(struct playos_compositor *c)
     c->state   = PLAYOS_STATE_SHUTTING_DOWN;
 
     if (c->display)
-        wl_display_destroy_clients(c->display);
-    if (c->display)
         wl_display_destroy(c->display);
 
     g_compositor = NULL;
@@ -272,13 +276,56 @@ handle_new_output(struct wl_listener *listener, void *data)
 
     (void)listener;
 
-    wlr_log(WLR_INFO, "playos-compositor: new output '%s' %dx%d",
-            output->name, output->width, output->height);
+    wlr_log(WLR_INFO, "playos-compositor: new output '%s'", output->name);
 
     /* Set output mode if needed for headless */
     if (c->backend_type == PLAYOS_BACKEND_HEADLESS) {
         if (!compositor_configure_output(output))
             return;
+    }
+
+    /* For DRM backend, explicitly set the preferred or discovered mode.
+     * This prevents wlroots from picking a suboptimal fallback mode. */
+    if (c->backend_type == PLAYOS_BACKEND_DRM) {
+        struct wlr_output_mode *preferred = NULL;
+
+        /* Try to match the discovered output config */
+        if (c->output_width > 0 && c->output_height > 0 && c->output_refresh_mhz > 0) {
+            struct wlr_output_mode *mode;
+            wl_list_for_each(mode, &output->modes, link) {
+                if (mode->width == c->output_width &&
+                    mode->height == c->output_height &&
+                    (int)(mode->refresh / 1000) == (c->output_refresh_mhz / 1000)) {
+                    preferred = mode;
+                    break;
+                }
+            }
+        }
+
+        /* Fall back to the connector's preferred mode */
+        if (!preferred) {
+            struct wlr_output_mode *mode;
+            wl_list_for_each(mode, &output->modes, link) {
+                if (mode->preferred) {
+                    preferred = mode;
+                    break;
+                }
+            }
+        }
+
+        /* If we found a mode, set it; otherwise let wlroots pick */
+        if (preferred) {
+            struct wlr_output_state state;
+            wlr_output_state_init(&state);
+            wlr_output_state_set_mode(&state, preferred);
+            wlr_output_state_set_enabled(&state, true);
+            wlr_output_commit_state(output, &state);
+            wlr_output_state_finish(&state);
+            wlr_log(WLR_INFO, "playos-compositor: output '%s' set to %dx%d@%dHz",
+                    output->name,
+                    preferred->width, preferred->height,
+                    (int)(preferred->refresh / 1000));
+        }
     }
 
     /* Add output to layout */
@@ -304,17 +351,12 @@ handle_new_output(struct wl_listener *listener, void *data)
         wlr_scene_node_lower_to_bottom(&bg->node);
     }
 
-    /* Commit the output state to activate the CRTC immediately */
-    struct wlr_output_state state;
-    wlr_output_state_init(&state);
-    wlr_output_state_set_enabled(&state, true);
-    if (!wlr_output_commit_state(output, &state)) {
-        wlr_log(WLR_ERROR, "playos-compositor: failed to commit output state");
-    }
-    wlr_output_state_finish(&state);
+    /* Register frame listener for diagnostic logging */
+    c->frame.notify = handle_frame;
+    wl_signal_add(&output->events.frame, &c->frame);
 
     wlr_log(WLR_INFO, "playos-compositor: output '%s' added to layout "
-            "(%dx%d), scene output created, CRTC activated",
+            "(%dx%d), scene output created",
             output->name, output->width, output->height);
     c->state = PLAYOS_STATE_RUNNING;
 }
@@ -330,11 +372,10 @@ handle_new_xdg_surface(struct wl_listener *listener, void *data)
     if (xdg_surface->role == WLR_XDG_SURFACE_ROLE_TOPLEVEL) {
         wlr_log(WLR_INFO, "playos-compositor: new xdg_toplevel surface");
 
-        /* Add surface to scene tree, positioned above background */
+        /* Add surface to scene tree for fullscreen layout */
         struct wlr_scene_tree *tree =
             wlr_scene_xdg_surface_create(&c->scene->tree, xdg_surface);
         if (tree) {
-            /* Center the surface on the output */
             wlr_scene_node_set_position(&tree->node, 0, 0);
             wlr_scene_node_raise_to_top(&tree->node);
             wlr_log(WLR_INFO, "playos-compositor: surface added to scene");
@@ -342,6 +383,21 @@ handle_new_xdg_surface(struct wl_listener *listener, void *data)
             wlr_log(WLR_ERROR, "playos-compositor: failed to add surface to scene");
         }
     }
+}
+
+static void
+handle_frame(struct wl_listener *listener, void *data)
+{
+    (void)listener;
+    struct wlr_output *output = data;
+
+    /* Diagnostic frame logging — wlr_scene_output handles the actual
+     * rendering, but having this listener provides visibility into
+     * scanout activity and helps detect stall/failure conditions. */
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    wlr_log(WLR_DEBUG, "playos-compositor: frame on '%s' @ %ld.%09ld",
+            output->name, (long)now.tv_sec, (long)now.tv_nsec);
 }
 
 static void

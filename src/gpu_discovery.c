@@ -37,7 +37,7 @@ device_has_connector(int fd, const char *card_path,
 
     for (int i = 0; i < res->count_connectors && !found; i++) {
         drmModeConnectorPtr conn =
-            drmModeGetConnector(fd, res->connectors[i]);
+            drmModeGetConnectorCurrent(fd, res->connectors[i]);
         if (!conn)
             continue;
 

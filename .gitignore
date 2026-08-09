@@ -23,4 +23,4 @@ gen/
 .DS_Store
 
 # Logs
-*.log
+*.logbuild-cross

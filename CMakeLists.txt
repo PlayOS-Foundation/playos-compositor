@@ -84,8 +84,8 @@ target_include_directories(playos-compositor PRIVATE
 )
 
 target_link_libraries(playos-compositor PRIVATE
-    ${WAYLAND_SERVER_LIBRARIES}
     ${WLROOTS_LIBRARIES}
+    ${WAYLAND_SERVER_LIBRARIES}
     ${PIXMAN_LIBRARIES}
     ${XKBCOMMON_LIBRARIES}
     ${LIBDRM_LIBRARIES}
@@ -116,6 +116,8 @@ if(BUILD_TESTS)
     add_executable(compositor-headless-test
         tests/headless/test_headless.c
         src/compositor.c
+        src/trusted_client.c
+        src/readiness.c
         src/diagnostics.c
         src/gpu_discovery.c
         src/drm_backend.c
@@ -138,8 +140,8 @@ if(BUILD_TESTS)
         ${GLES2_INCLUDE_DIRS}
     )
     target_link_libraries(compositor-headless-test PRIVATE
-        ${WAYLAND_SERVER_LIBRARIES}
         ${WLROOTS_LIBRARIES}
+        ${WAYLAND_SERVER_LIBRARIES}
         ${PIXMAN_LIBRARIES}
         ${XKBCOMMON_LIBRARIES}
         ${LIBDRM_LIBRARIES}
@@ -155,6 +157,8 @@ if(BUILD_TESTS)
     add_executable(compositor-nested-test
         tests/nested/test_nested.c
         src/compositor.c
+        src/trusted_client.c
+        src/readiness.c
         src/diagnostics.c
         src/gpu_discovery.c
         src/drm_backend.c
@@ -177,8 +181,8 @@ if(BUILD_TESTS)
         ${GLES2_INCLUDE_DIRS}
     )
     target_link_libraries(compositor-nested-test PRIVATE
-        ${WAYLAND_SERVER_LIBRARIES}
         ${WLROOTS_LIBRARIES}
+        ${WAYLAND_SERVER_LIBRARIES}
         ${PIXMAN_LIBRARIES}
         ${XKBCOMMON_LIBRARIES}
         ${LIBDRM_LIBRARIES}
