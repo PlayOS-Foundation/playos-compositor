@@ -136,13 +136,16 @@ playos_gpu_discover(struct playos_gpu *gpu)
         memset(&c, 0, sizeof(c));
         c.index = i;
 
-        snprintf(c.primary_path, sizeof(c.primary_path),
-                 "/dev/dri/card%d", (int)(uintptr_t)dev->nodes[DRM_NODE_PRIMARY]);
+        /* dev->nodes[] is a NULL-terminated string array of paths */
+        if (dev->nodes[DRM_NODE_PRIMARY]) {
+            snprintf(c.primary_path, sizeof(c.primary_path),
+                     "%s", dev->nodes[DRM_NODE_PRIMARY]);
+        }
 
-        if (dev->available_nodes & (1 << DRM_NODE_RENDER)) {
+        if ((dev->available_nodes & (1 << DRM_NODE_RENDER)) &&
+            dev->nodes[DRM_NODE_RENDER]) {
             snprintf(c.render_path, sizeof(c.render_path),
-                     "/dev/dri/renderD%d",
-                     (int)(uintptr_t)dev->nodes[DRM_NODE_RENDER]);
+                     "%s", dev->nodes[DRM_NODE_RENDER]);
         }
 
         /* Get PCI IDs */
