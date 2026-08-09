@@ -35,11 +35,13 @@ playos_drm_backend_start(struct playos_compositor *c,
                           "DRM backend created");
 
     /* Create renderer with GBM/EGL context */
+    fprintf(stderr, "compositor: creating renderer...\n");
     c->renderer = wlr_renderer_autocreate(c->backend);
     if (!c->renderer) {
         return playos_diag_fatal(PLAYOS_DIAG_PHASE_BACKEND_START,
                                  "failed to create renderer");
     }
+    fprintf(stderr, "compositor: renderer created, init wl_display...\n");
     wlr_renderer_init_wl_display(c->renderer, display);
 
     /* Create allocator */

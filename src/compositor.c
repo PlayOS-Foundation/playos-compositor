@@ -163,12 +163,15 @@ playos_compositor_start(struct playos_compositor *c)
     }
 
     /* ── Query renderer diagnostics (Sprint 4) ───────── */
+    fprintf(stderr, "compositor: renderer created, querying...\n");
     if (c->renderer) {
         struct playos_renderer_info rinfo;
         playos_renderer_query(c->renderer, &rinfo);
     }
+    fprintf(stderr, "compositor: renderer query done\n");
 
     /* ── Scene graph ─────────────────────────────────── */
+    fprintf(stderr, "compositor: creating scene...\n");
     c->scene = wlr_scene_create();
     if (!c->scene) {
         playos_diag_fatal(PLAYOS_DIAG_PHASE_INIT,
@@ -227,6 +230,7 @@ playos_compositor_start(struct playos_compositor *c)
     c->socket_name = socket;
 
     /* ── Start backend ───────────────────────────────── */
+    fprintf(stderr, "compositor: starting backend...\n");
     if (!wlr_backend_start(c->backend)) {
         playos_diag_fatal(PLAYOS_DIAG_PHASE_BACKEND_START,
                           "failed to start backend");
@@ -286,6 +290,8 @@ handle_new_output(struct wl_listener *listener, void *data)
 
     (void)listener;
 
+    fprintf(stderr, "compositor: new output '%s' (%dx%d)\n",
+            output->name, output->width, output->height);
     wlr_log(WLR_INFO, "playos-compositor: new output '%s'", output->name);
 
     /* Set output mode if needed for headless */
