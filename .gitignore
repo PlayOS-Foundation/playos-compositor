@@ -24,3 +24,4 @@ gen/
 
 # Logs
 *.logbuild-cross
+build-cross/
