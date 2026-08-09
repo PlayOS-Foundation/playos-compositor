@@ -297,8 +297,10 @@ handle_new_output(struct wl_listener *listener, void *data)
     /* Create scene output for this output */
     struct wlr_scene_output *scene_output =
         wlr_scene_output_create(c->scene, output);
-    if (!scene_output)
+    if (!scene_output) {
+        wlr_log(WLR_ERROR, "playos-compositor: failed to create scene output");
         return;
+    }
 
     /* ── Background rect: PlayOS blue, always visible ──── */
     float bg_color[4] = { 0.08f, 0.16f, 0.30f, 1.0f }; /* #15304D */
@@ -309,8 +311,18 @@ handle_new_output(struct wl_listener *listener, void *data)
         wlr_scene_node_lower_to_bottom(&bg->node);
     }
 
+    /* Commit the output state to activate the CRTC immediately */
+    struct wlr_output_state state;
+    wlr_output_state_init(&state);
+    wlr_output_state_set_enabled(&state, true);
+    if (!wlr_output_commit_state(output, &state)) {
+        wlr_log(WLR_ERROR, "playos-compositor: failed to commit output state");
+    }
+    wlr_output_state_finish(&state);
+
     wlr_log(WLR_INFO, "playos-compositor: output '%s' added to layout "
-            "(%dx%d)", output->name, output->width, output->height);
+            "(%dx%d), scene output created, CRTC activated",
+            output->name, output->width, output->height);
     c->state = PLAYOS_STATE_RUNNING;
 }
 
