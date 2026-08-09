@@ -60,9 +60,12 @@ static const struct wl_registry_listener registry_listener = {
 };
 
 static int
-init_egl(void)
+init_egl(struct wl_display *wayland_display)
 {
-    egl_display = eglGetDisplay((EGLNativeDisplayType)NULL);
+    /* On bare DRM/KMS without X11/Wayland platform, eglGetDisplay(NULL)
+     * fails. Pass the wl_display* so the EGL implementation knows to
+     * go through the Wayland protocol. */
+    egl_display = eglGetDisplay((EGLNativeDisplayType)wayland_display);
     if (egl_display == EGL_NO_DISPLAY) {
         fprintf(stderr, "test-client: eglGetDisplay failed\n");
         return -1;
@@ -354,7 +357,7 @@ int main(int argc, char *argv[])
     }
 
     /* Initialize EGL before creating the Wayland surface */
-    if (init_egl() != 0) {
+    if (init_egl(display) != 0) {
         fprintf(stderr, "test-client: EGL initialization failed\n");
         return EXIT_FAILURE;
     }
