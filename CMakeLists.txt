@@ -139,6 +139,11 @@ if(BUILD_TESTS)
         ${EGL_INCLUDE_DIRS}
         ${GLES2_INCLUDE_DIRS}
     )
+    target_link_directories(compositor-headless-test PRIVATE
+        ${WLROOTS_LIBRARY_DIRS}
+        ${WAYLAND_SERVER_LIBRARY_DIRS}
+        ${PIXMAN_LIBRARY_DIRS}
+    )
     target_link_libraries(compositor-headless-test PRIVATE
         ${WLROOTS_LIBRARIES}
         ${WAYLAND_SERVER_LIBRARIES}
@@ -179,6 +184,11 @@ if(BUILD_TESTS)
         ${LIBDRM_INCLUDE_DIRS}
         ${EGL_INCLUDE_DIRS}
         ${GLES2_INCLUDE_DIRS}
+    )
+    target_link_directories(compositor-nested-test PRIVATE
+        ${WLROOTS_LIBRARY_DIRS}
+        ${WAYLAND_SERVER_LIBRARY_DIRS}
+        ${PIXMAN_LIBRARY_DIRS}
     )
     target_link_libraries(compositor-nested-test PRIVATE
         ${WLROOTS_LIBRARIES}
