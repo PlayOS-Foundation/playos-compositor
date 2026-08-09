@@ -23,7 +23,9 @@ compositor_configure_output(struct wlr_output *output)
     return ok;
 }
 
-static void handle_new_xdg_surface(struct wl_listener *listener, void *data);
+static void handle_new_xdg_toplevel(struct wl_listener *listener, void *data);
+static void handle_toplevel_commit(struct wl_listener *listener, void *data);
+static void handle_toplevel_destroy(struct wl_listener *listener, void *data);
 static void handle_new_output(struct wl_listener *listener, void *data);
 static void handle_frame(struct wl_listener *listener, void *data);
 static void handle_signal(int sig);
@@ -38,6 +40,14 @@ playos_compositor_init(struct playos_compositor *c, enum playos_backend backend)
     c->state        = PLAYOS_STATE_STARTING;
     c->running      = false;
     c->socket_name  = "playos-0";
+
+    /* Pre-init listener links so wl_list_remove() in destroy is a safe
+     * no-op for listeners that were never attached */
+    wl_list_init(&c->new_output.link);
+    wl_list_init(&c->new_xdg_surface.link);
+    wl_list_init(&c->toplevel_commit.link);
+    wl_list_init(&c->toplevel_destroy.link);
+    wl_list_init(&c->frame.link);
 }
 
 int
@@ -214,8 +224,8 @@ playos_compositor_start(struct playos_compositor *c)
     c->new_output.notify = handle_new_output;
     wl_signal_add(&c->backend->events.new_output, &c->new_output);
 
-    c->new_xdg_surface.notify = handle_new_xdg_surface;
-    wl_signal_add(&c->xdg_shell->events.new_surface, &c->new_xdg_surface);
+    c->new_xdg_surface.notify = handle_new_xdg_toplevel;
+    wl_signal_add(&c->xdg_shell->events.new_toplevel, &c->new_xdg_surface);
 
     /* ── Create Wayland socket ───────────────────────── */
     setenv("XDG_RUNTIME_DIR", "/run/playos", 0);
@@ -274,6 +284,12 @@ playos_compositor_destroy(struct playos_compositor *c)
     c->running = false;
     c->state   = PLAYOS_STATE_SHUTTING_DOWN;
 
+    /* Detach listeners before wl_display_destroy — wlroots 0.20 asserts
+     * that signal listener lists are empty when objects are freed */
+    wl_list_remove(&c->new_output.link);
+    wl_list_remove(&c->new_xdg_surface.link);
+    wl_list_remove(&c->frame.link);
+
     if (c->display)
         wl_display_destroy(c->display);
 
@@ -293,6 +309,14 @@ handle_new_output(struct wl_listener *listener, void *data)
     fprintf(stderr, "compositor: new output '%s' (%dx%d)\n",
             output->name, output->width, output->height);
     wlr_log(WLR_INFO, "playos-compositor: new output '%s'", output->name);
+
+    /* Attach renderer/allocator to the output — required by wlroots
+     * 0.20 before any rendering (wlr_scene_output_commit) on it */
+    if (!wlr_output_init_render(output, c->allocator, c->renderer)) {
+        wlr_log(WLR_ERROR, "playos-compositor: failed to attach renderer "
+                "to output '%s'", output->name);
+        return;
+    }
 
     /* Set output mode if needed for headless */
     if (c->backend_type == PLAYOS_BACKEND_HEADLESS) {
@@ -371,6 +395,10 @@ handle_new_output(struct wl_listener *listener, void *data)
     c->frame.notify = handle_frame;
     wl_signal_add(&output->events.frame, &c->frame);
 
+    /* Kick off the render loop — guarantees a first frame even if the
+     * backend doesn't emit one spontaneously after the modeset */
+    wlr_output_schedule_frame(output);
+
     wlr_log(WLR_INFO, "playos-compositor: output '%s' added to layout "
             "(%dx%d), scene output created",
             output->name, output->width, output->height);
@@ -378,42 +406,98 @@ handle_new_output(struct wl_listener *listener, void *data)
 }
 
 static void
-handle_new_xdg_surface(struct wl_listener *listener, void *data)
+handle_new_xdg_toplevel(struct wl_listener *listener, void *data)
 {
     struct playos_compositor *c = g_compositor;
-    struct wlr_xdg_surface *xdg_surface = data;
+    struct wlr_xdg_toplevel *toplevel = data;
+    struct wlr_xdg_surface *xdg_surface = toplevel->base;
 
     (void)listener;
 
-    if (xdg_surface->role == WLR_XDG_SURFACE_ROLE_TOPLEVEL) {
-        wlr_log(WLR_INFO, "playos-compositor: new xdg_toplevel surface");
+    wlr_log(WLR_INFO, "playos-compositor: new xdg_toplevel surface");
 
-        /* Add surface to scene tree for fullscreen layout */
-        struct wlr_scene_tree *tree =
-            wlr_scene_xdg_surface_create(&c->scene->tree, xdg_surface);
-        if (tree) {
-            wlr_scene_node_set_position(&tree->node, 0, 0);
-            wlr_scene_node_raise_to_top(&tree->node);
-            wlr_log(WLR_INFO, "playos-compositor: surface added to scene");
-        } else {
-            wlr_log(WLR_ERROR, "playos-compositor: failed to add surface to scene");
-        }
+    /* Add surface to scene tree for fullscreen layout */
+    struct wlr_scene_tree *tree =
+        wlr_scene_xdg_surface_create(&c->scene->tree, xdg_surface);
+    if (tree) {
+        wlr_scene_node_set_position(&tree->node, 0, 0);
+        wlr_scene_node_raise_to_top(&tree->node);
+
+        /* The initial configure is sent from the commit handler once
+         * the client performs its first commit (see handle_toplevel_commit) */
+        c->toplevel_commit.notify = handle_toplevel_commit;
+        wl_signal_add(&xdg_surface->surface->events.commit,
+                      &c->toplevel_commit);
+
+        c->toplevel_destroy.notify = handle_toplevel_destroy;
+        wl_signal_add(&xdg_surface->events.destroy,
+                      &c->toplevel_destroy);
+
+        wlr_log(WLR_INFO, "playos-compositor: surface added to scene");
+    } else {
+        wlr_log(WLR_ERROR, "playos-compositor: failed to add surface to scene");
     }
+}
+
+static void
+handle_toplevel_commit(struct wl_listener *listener, void *data)
+{
+    struct playos_compositor *c = g_compositor;
+    struct wlr_surface *surface = data;
+
+    (void)listener;
+
+    struct wlr_xdg_surface *xdg_surface =
+        wlr_xdg_surface_try_from_wlr_surface(surface);
+    if (!xdg_surface || xdg_surface->role != WLR_XDG_SURFACE_ROLE_TOPLEVEL)
+        return;
+
+    /* On the initial commit the compositor must reply with a configure
+     * so the client can map. PlayOS surfaces are fullscreen: size them
+     * to the output (0,0 lets the client pick, e.g. on headless). */
+    if (xdg_surface->initial_commit) {
+        int w = c->output_width > 0 ? c->output_width : 0;
+        int h = c->output_height > 0 ? c->output_height : 0;
+        wlr_xdg_toplevel_set_size(xdg_surface->toplevel, w, h);
+    }
+}
+
+static void
+handle_toplevel_destroy(struct wl_listener *listener, void *data)
+{
+    struct playos_compositor *c = g_compositor;
+
+    (void)listener;
+    (void)data;
+
+    /* wlroots 0.20 asserts all listeners are detached before the
+     * surface/signal is freed */
+    wl_list_remove(&c->toplevel_commit.link);
+    wl_list_remove(&c->toplevel_destroy.link);
 }
 
 static void
 handle_frame(struct wl_listener *listener, void *data)
 {
     (void)listener;
+    struct playos_compositor *c = g_compositor;
     struct wlr_output *output = data;
 
-    /* Diagnostic frame logging — wlr_scene_output handles the actual
-     * rendering, but having this listener provides visibility into
-     * scanout activity and helps detect stall/failure conditions. */
+    /* Render the scene onto this output. wlr_scene_output_commit() is
+     * what actually draws and queues a buffer for scanout — without it
+     * no frame is ever presented and, since DRM frame events are driven
+     * by completed page flips, the frame event loop never starts either
+     * (output stays black). */
+    struct wlr_scene_output *scene_output =
+        wlr_scene_get_scene_output(c->scene, output);
+    if (!scene_output)
+        return;
+
+    wlr_scene_output_commit(scene_output, NULL);
+
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
-    wlr_log(WLR_DEBUG, "playos-compositor: frame on '%s' @ %ld.%09ld",
-            output->name, (long)now.tv_sec, (long)now.tv_nsec);
+    wlr_scene_output_send_frame_done(scene_output, &now);
 }
 
 static void

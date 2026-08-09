@@ -83,6 +83,8 @@ struct playos_compositor {
     /* Signal listeners */
     struct wl_listener        new_output;
     struct wl_listener        new_xdg_surface;
+    struct wl_listener        toplevel_commit;
+    struct wl_listener        toplevel_destroy;
     struct wl_listener        frame;
 };
 
