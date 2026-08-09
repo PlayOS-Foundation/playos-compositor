@@ -63,13 +63,23 @@ playos_compositor_start(struct playos_compositor *c)
         playos_diag_log_phase(PLAYOS_DIAG_PHASE_BACKEND_START,
                               "using native DRM/KMS backend");
 
-        /* GPU discovery (ADR-0008) */
+        /* GPU discovery (ADR-0008)
+         * Retry up to 10 times (5s) — GPU driver may not be ready yet */
         struct playos_gpu gpu;
-        if (playos_gpu_discover(&gpu) != 0 || !gpu.valid) {
+        int gpu_attempts = 0;
+        while (gpu_attempts < 10) {
+            if (playos_gpu_discover(&gpu) == 0 && gpu.valid)
+                break;
+            if (gpu_attempts == 0)
+                wlr_log(WLR_INFO, "GPU discovery: waiting for DRM devices...");
+            usleep(500000);  /* 500ms poll */
+            gpu_attempts++;
+        }
+
+        if (!gpu.valid) {
             playos_diag_log_fallback("simpledrm",
-                                     "GPU discovery failed, attempting simpledrm fallback");
-            /* Try simpledrm fallback via headless — system may have simpledrm
-             * as a recovery framebuffer */
+                                     "GPU discovery failed after 5s, attempting headless fallback");
+            /* No GPU found — headless fallback */
             setenv("WLR_BACKENDS", "headless", 1);
             c->backend = wlr_backend_autocreate(c->event_loop, NULL);
             if (!c->backend) {
