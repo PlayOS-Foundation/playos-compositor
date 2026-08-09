@@ -279,7 +279,8 @@ handle_new_output(struct wl_listener *listener, void *data)
 
     (void)listener;
 
-    wlr_log(WLR_INFO, "playos-compositor: new output '%s'", output->name);
+    wlr_log(WLR_INFO, "playos-compositor: new output '%s' %dx%d",
+            output->name, output->width, output->height);
 
     /* Set output mode if needed for headless */
     if (c->backend_type == PLAYOS_BACKEND_HEADLESS) {
@@ -299,7 +300,17 @@ handle_new_output(struct wl_listener *listener, void *data)
     if (!scene_output)
         return;
 
-    wlr_log(WLR_INFO, "playos-compositor: output '%s' added to layout", output->name);
+    /* ── Background rect: PlayOS blue, always visible ──── */
+    float bg_color[4] = { 0.08f, 0.16f, 0.30f, 1.0f }; /* #15304D */
+    struct wlr_scene_rect *bg = wlr_scene_rect_create(
+        &c->scene->tree, output->width, output->height, bg_color);
+    if (bg) {
+        wlr_scene_node_set_position(&bg->node, 0, 0);
+        wlr_scene_node_lower_to_bottom(&bg->node);
+    }
+
+    wlr_log(WLR_INFO, "playos-compositor: output '%s' added to layout "
+            "(%dx%d)", output->name, output->width, output->height);
     c->state = PLAYOS_STATE_RUNNING;
 }
 
@@ -314,12 +325,16 @@ handle_new_xdg_surface(struct wl_listener *listener, void *data)
     if (xdg_surface->role == WLR_XDG_SURFACE_ROLE_TOPLEVEL) {
         wlr_log(WLR_INFO, "playos-compositor: new xdg_toplevel surface");
 
-        /* Add surface to scene tree for fullscreen layout */
+        /* Add surface to scene tree, positioned above background */
         struct wlr_scene_tree *tree =
             wlr_scene_xdg_surface_create(&c->scene->tree, xdg_surface);
         if (tree) {
+            /* Center the surface on the output */
             wlr_scene_node_set_position(&tree->node, 0, 0);
-            wlr_log(WLR_INFO, "playos-compositor: surface mapped as fullscreen");
+            wlr_scene_node_raise_to_top(&tree->node);
+            wlr_log(WLR_INFO, "playos-compositor: surface added to scene");
+        } else {
+            wlr_log(WLR_ERROR, "playos-compositor: failed to add surface to scene");
         }
     }
 }
