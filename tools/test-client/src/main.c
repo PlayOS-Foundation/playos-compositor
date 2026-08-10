@@ -77,6 +77,15 @@ init_egl(struct wl_display *wayland_display)
         return -1;
     }
 
+    /* We are a GLES2 client — without this the default EGL_OPENGL_API
+     * is used and the context/surface end up mismatched (EGL_BAD_MATCH
+     * at eglMakeCurrent) */
+    if (!eglBindAPI(EGL_OPENGL_ES_API)) {
+        fprintf(stderr, "test-client: eglBindAPI(ES) failed: 0x%x\n",
+                eglGetError());
+        return -1;
+    }
+
     EGLint config_attrs[] = {
         EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
         EGL_RED_SIZE, 8,
@@ -128,7 +137,12 @@ create_egl_window(void)
     };
     EGLConfig config;
     EGLint num_configs;
-    eglChooseConfig(egl_display, config_attrs, &config, 1, &num_configs);
+    if (!eglChooseConfig(egl_display, config_attrs, &config, 1, &num_configs) ||
+        num_configs == 0) {
+        fprintf(stderr, "test-client: no window EGL config: 0x%x\n",
+                eglGetError());
+        return;
+    }
 
     egl_surface = eglCreateWindowSurface(egl_display, config,
                                          (EGLNativeWindowType)egl_window, NULL);
@@ -148,7 +162,11 @@ xdg_surface_handle_configure(void *data, struct xdg_surface *xdg_surface,
     if (!egl_surface || egl_surface == EGL_NO_SURFACE) {
         create_egl_window();
         if (egl_surface != EGL_NO_SURFACE) {
-            eglMakeCurrent(egl_display, egl_surface, egl_surface, egl_context);
+            if (!eglMakeCurrent(egl_display, egl_surface, egl_surface,
+                                egl_context)) {
+                fprintf(stderr, "test-client: eglMakeCurrent failed: 0x%x\n",
+                        eglGetError());
+            }
 
             /* Init shaders once */
             if (init_shaders() != 0) {
