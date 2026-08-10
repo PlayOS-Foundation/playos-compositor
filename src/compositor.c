@@ -220,6 +220,14 @@ playos_compositor_start(struct playos_compositor *c)
         return -1;
     }
 
+    /* ── PlayOS trusted protocol manager ─────────────── */
+    if (playos_manager_create(c) != 0) {
+        playos_diag_fatal(PLAYOS_DIAG_PHASE_INIT,
+                          "failed to create playos_manager global");
+        wl_display_destroy(c->display);
+        return -1;
+    }
+
     /* ── Setup listeners ─────────────────────────────── */
     c->new_output.notify = handle_new_output;
     wl_signal_add(&c->backend->events.new_output, &c->new_output);

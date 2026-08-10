@@ -101,6 +101,9 @@ bool playos_trusted_client_claim(struct playos_compositor *c,
 bool playos_trusted_client_is_trusted(struct playos_compositor *c,
                                       struct wl_client *client);
 
+/* ── Trusted protocol (S5) ────────────────────────────── */
+int  playos_manager_create(struct playos_compositor *c);
+
 /* ── Readiness signaling (S2-T7) ──────────────────────── */
 void playos_readiness_signal(struct playos_compositor *c);
 

@@ -55,6 +55,7 @@ set(COMPOSITOR_SOURCES
     src/main.c
     src/compositor.c
     src/trusted_client.c
+    src/playos_manager.c
     src/readiness.c
     src/diagnostics.c
     src/gpu_discovery.c
@@ -127,12 +128,15 @@ if(BUILD_TESTS)
         tests/headless/test_headless.c
         src/compositor.c
         src/trusted_client.c
+        src/playos_manager.c
         src/readiness.c
         src/diagnostics.c
         src/gpu_discovery.c
         src/drm_backend.c
         src/output_modes.c
         src/renderer_gbm_egl.c
+        ${GEN_DIR}/playos-v1-protocol.h
+        ${GEN_DIR}/playos-v1-protocol.c
         ${GEN_DIR}/xdg-shell-protocol.h
         ${GEN_DIR}/xdg-shell-protocol.c
     )
@@ -173,12 +177,15 @@ if(BUILD_TESTS)
         tests/nested/test_nested.c
         src/compositor.c
         src/trusted_client.c
+        src/playos_manager.c
         src/readiness.c
         src/diagnostics.c
         src/gpu_discovery.c
         src/drm_backend.c
         src/output_modes.c
         src/renderer_gbm_egl.c
+        ${GEN_DIR}/playos-v1-protocol.h
+        ${GEN_DIR}/playos-v1-protocol.c
         ${GEN_DIR}/xdg-shell-protocol.h
         ${GEN_DIR}/xdg-shell-protocol.c
     )
