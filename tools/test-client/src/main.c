@@ -29,6 +29,7 @@ static struct wl_egl_window *egl_window = NULL;
 static EGLDisplay egl_display = EGL_NO_DISPLAY;
 static EGLSurface egl_surface = EGL_NO_SURFACE;
 static EGLContext egl_context = EGL_NO_CONTEXT;
+static EGLConfig egl_config = NULL;
 static int running = 1;
 static int width = 640, height = 480;
 static struct timeval start_time;
@@ -102,6 +103,7 @@ init_egl(struct wl_display *wayland_display)
         fprintf(stderr, "test-client: no suitable EGL config\n");
         return -1;
     }
+    egl_config = config;
 
     EGLint ctx_attrs[] = {
         EGL_CONTEXT_CLIENT_VERSION, 2,
@@ -126,25 +128,15 @@ create_egl_window(void)
         return;
     }
 
-    /* Find a suitable EGL config */
-    EGLint config_attrs[] = {
-        EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
-        EGL_RED_SIZE, 8,
-        EGL_GREEN_SIZE, 8,
-        EGL_BLUE_SIZE, 8,
-        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-        EGL_NONE
-    };
-    EGLConfig config;
-    EGLint num_configs;
-    if (!eglChooseConfig(egl_display, config_attrs, &config, 1, &num_configs) ||
-        num_configs == 0) {
-        fprintf(stderr, "test-client: no window EGL config: 0x%x\n",
-                eglGetError());
+    /* Reuse the SAME EGLConfig the context was created with — Mesa
+     * requires surface and context configs to be identical, otherwise
+     * eglMakeCurrent fails with EGL_BAD_MATCH. */
+    if (!egl_config) {
+        fprintf(stderr, "test-client: no EGL config from init\n");
         return;
     }
 
-    egl_surface = eglCreateWindowSurface(egl_display, config,
+    egl_surface = eglCreateWindowSurface(egl_display, egl_config,
                                          (EGLNativeWindowType)egl_window, NULL);
     if (egl_surface == EGL_NO_SURFACE) {
         fprintf(stderr, "test-client: eglCreateWindowSurface failed: 0x%x\n",
@@ -238,6 +230,7 @@ static const char *vertex_shader_src =
     "}\n";
 
 static const char *fragment_shader_src =
+    "precision mediump float;\n"
     "uniform vec4 u_color;\n"
     "void main() {\n"
     "    gl_FragColor = u_color;\n"
@@ -380,6 +373,11 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
+    /* Never throttle inside eglSwapBuffers on frame callbacks — a test
+     * client must make forward progress even if frame-done delivery
+     * stalls; the busy loop below draws as fast as possible. */
+    eglSwapInterval(egl_display, 0);
+
     fprintf(stderr, "test-client: EGL initialized, creating surface\n");
 
     surface = wl_compositor_create_surface(compositor);
@@ -398,7 +396,11 @@ int main(int argc, char *argv[])
     int frame_count = 0;
     struct timeval last_fps_time = start_time;
 
-    while (running && wl_display_dispatch(display) != -1) {
+    while (running) {
+        /* Non-blocking event pump — never wait on the socket */
+        wl_display_dispatch_pending(display);
+        wl_display_flush(display);
+
         if (egl_surface != EGL_NO_SURFACE) {
             draw_frame();
             frame_count++;
