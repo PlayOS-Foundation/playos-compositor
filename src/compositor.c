@@ -10,6 +10,18 @@
 #include <signal.h>
 #include <unistd.h>
 
+/* Per-toplevel state. Each xdg toplevel surface gets its own listener
+ * pair so that a second client (e.g. a launched game) does not corrupt the
+ * shared signal lists — a single embedded listener cannot live in more than
+ * one signal at a time. */
+struct playos_toplevel {
+    struct playos_compositor *compositor;
+    struct wlr_xdg_surface   *xdg_surface;
+    struct wlr_scene_tree    *scene_tree;
+    struct wl_listener        commit;
+    struct wl_listener        destroy;
+};
+
 /* ── Output configuration: use the state-based API (available 0.16+) ──── */
 static bool
 compositor_configure_output(struct wlr_output *output)
@@ -45,8 +57,6 @@ playos_compositor_init(struct playos_compositor *c, enum playos_backend backend)
      * no-op for listeners that were never attached */
     wl_list_init(&c->new_output.link);
     wl_list_init(&c->new_xdg_surface.link);
-    wl_list_init(&c->toplevel_commit.link);
-    wl_list_init(&c->toplevel_destroy.link);
     wl_list_init(&c->frame.link);
 }
 
@@ -416,44 +426,47 @@ handle_new_output(struct wl_listener *listener, void *data)
 static void
 handle_new_xdg_toplevel(struct wl_listener *listener, void *data)
 {
-    struct playos_compositor *c = g_compositor;
+    struct playos_compositor *c =
+        wl_container_of(listener, c, new_xdg_surface);
     struct wlr_xdg_toplevel *toplevel = data;
     struct wlr_xdg_surface *xdg_surface = toplevel->base;
 
-    (void)listener;
-
     wlr_log(WLR_INFO, "playos-compositor: new xdg_toplevel surface");
 
+    struct playos_toplevel *t = calloc(1, sizeof(*t));
+    if (!t)
+        return;
+    t->compositor   = c;
+    t->xdg_surface  = xdg_surface;
+
     /* Add surface to scene tree for fullscreen layout */
-    struct wlr_scene_tree *tree =
+    t->scene_tree =
         wlr_scene_xdg_surface_create(&c->scene->tree, xdg_surface);
-    if (tree) {
-        wlr_scene_node_set_position(&tree->node, 0, 0);
-        wlr_scene_node_raise_to_top(&tree->node);
-
-        /* The initial configure is sent from the commit handler once
-         * the client performs its first commit (see handle_toplevel_commit) */
-        c->toplevel_commit.notify = handle_toplevel_commit;
-        wl_signal_add(&xdg_surface->surface->events.commit,
-                      &c->toplevel_commit);
-
-        c->toplevel_destroy.notify = handle_toplevel_destroy;
-        wl_signal_add(&xdg_surface->events.destroy,
-                      &c->toplevel_destroy);
-
-        wlr_log(WLR_INFO, "playos-compositor: surface added to scene");
-    } else {
+    if (!t->scene_tree) {
         wlr_log(WLR_ERROR, "playos-compositor: failed to add surface to scene");
+        free(t);
+        return;
     }
+    wlr_scene_node_set_position(&t->scene_tree->node, 0, 0);
+    wlr_scene_node_raise_to_top(&t->scene_tree->node);
+
+    /* The initial configure is sent from the commit handler once
+     * the client performs its first commit (see handle_toplevel_commit) */
+    t->commit.notify = handle_toplevel_commit;
+    wl_signal_add(&xdg_surface->surface->events.commit, &t->commit);
+
+    t->destroy.notify = handle_toplevel_destroy;
+    wl_signal_add(&xdg_surface->events.destroy, &t->destroy);
+
+    wlr_log(WLR_INFO, "playos-compositor: surface added to scene");
 }
 
 static void
 handle_toplevel_commit(struct wl_listener *listener, void *data)
 {
-    struct playos_compositor *c = g_compositor;
+    struct playos_toplevel *t = wl_container_of(listener, t, commit);
+    struct playos_compositor *c = t->compositor;
     struct wlr_surface *surface = data;
-
-    (void)listener;
 
     struct wlr_xdg_surface *xdg_surface =
         wlr_xdg_surface_try_from_wlr_surface(surface);
@@ -473,15 +486,15 @@ handle_toplevel_commit(struct wl_listener *listener, void *data)
 static void
 handle_toplevel_destroy(struct wl_listener *listener, void *data)
 {
-    struct playos_compositor *c = g_compositor;
+    struct playos_toplevel *t = wl_container_of(listener, t, destroy);
 
-    (void)listener;
     (void)data;
 
     /* wlroots 0.20 asserts all listeners are detached before the
      * surface/signal is freed */
-    wl_list_remove(&c->toplevel_commit.link);
-    wl_list_remove(&c->toplevel_destroy.link);
+    wl_list_remove(&t->commit.link);
+    wl_list_remove(&t->destroy.link);
+    free(t);
 }
 
 static void
