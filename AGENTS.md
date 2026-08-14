@@ -17,7 +17,7 @@ Before touching any file here, read:
 
 ```
 SHELL_FOREGROUND
-    │  (shell sends playos_session_manager.launch_game)
+    │  (init sends SetExpectedGame over the compositor control socket)
     ▼
 GAME_STARTING
     │  (game commits first wl_buffer — first-frame rule)
@@ -72,7 +72,7 @@ CMakeLists.txt
 - **`PLAYOS_BUTTON_SYSTEM` is reserved** — it must be intercepted before reaching Wayland clients. The libinput/evdev input path is handled by `playos-platform-api`; the compositor receives surface-level events only.
 - **First-frame rule**: do not make `GAME_FOREGROUND` visible until the game has committed at least one `wl_buffer`. Check `game_surface.first_frame_committed` before any scanout swap.
 - **`/dev/dri/card*` selection**: use `gpu_discovery.c` (PCI enumeration via `drmGetDevices2()` per ADR-0008), never hardcode `card0`.
-- **Games never bind `playos_session_manager`** — enforce at protocol bind time by checking client credentials against the `playos-trusted` group.
+- **Games never bind `playos_manager_v1`** — enforce at protocol bind time by checking client credentials against the `playos-trusted` group.
 - **The compositor must not exit** — if it does, the display goes dark. Treat all errors as recoverable where possible; only call `exit(1)` for unrecoverable DRM/KMS failures.
 - **Readiness signal**: call `playos_readiness_signal()` after successful backend init so `playos-init` knows the compositor is ready to accept clients.
 
@@ -110,4 +110,4 @@ PLAYOS_BACKEND=drm ./build/playos-compositor
 - Do not store game save data or handle storage — that is `playos-init`'s domain.
 - Do not communicate with the game directly over IPC — use the Wayland protocol only.
 - Do not add a dependency on Raylib or any UI toolkit.
-- Do not fork or exec game processes — that is `playos-init`'s job via the IPC `launch_game` message.
+- Do not fork or exec game processes — that is `playos-init`'s job, triggered by the `LaunchGame` IPC message on `/run/playos/control.sock`.
