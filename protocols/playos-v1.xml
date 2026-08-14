@@ -129,34 +129,4 @@
     </event>
   </interface>
 
-  <!-- ──────────────────────────────────────────────────────── -->
-  <!-- playos_game_launch_v1                                    -->
-  <!-- Notifies compositor of an incoming game connection       -->
-  <!-- ──────────────────────────────────────────────────────── -->
-
-  <interface name="playos_game_launch_v1" version="1">
-    <description summary="Interface for setting the expected game launch identity"/>
-
-    <request name="set_expected_game">
-      <description summary="Tell compositor which token to expect from the next game client"/>
-      <arg name="launch_token" type="string"/>
-      <arg name="game_id"      type="string"/>
-    </request>
-
-    <request name="clear_expected_game">
-      <description summary="Cancel the pending expected game"/>
-    </request>
-
-    <event name="game_surface_ready">
-      <description summary="Game committed its first valid buffer"/>
-      <arg name="launch_token" type="string"/>
-      <arg name="game_id"      type="string"/>
-    </event>
-
-    <event name="game_surface_destroyed">
-      <description summary="Game Wayland surface was destroyed or client disconnected"/>
-      <arg name="game_id" type="string"/>
-    </event>
-  </interface>
-
 </protocol>

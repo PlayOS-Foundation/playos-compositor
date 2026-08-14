@@ -10,18 +10,6 @@
 #include <signal.h>
 #include <unistd.h>
 
-/* Per-toplevel state. Each xdg toplevel surface gets its own listener
- * pair so that a second client (e.g. a launched game) does not corrupt the
- * shared signal lists — a single embedded listener cannot live in more than
- * one signal at a time. */
-struct playos_toplevel {
-    struct playos_compositor *compositor;
-    struct wlr_xdg_surface   *xdg_surface;
-    struct wlr_scene_tree    *scene_tree;
-    struct wl_listener        commit;
-    struct wl_listener        destroy;
-};
-
 /* ── Output configuration: use the state-based API (available 0.16+) ──── */
 static bool
 compositor_configure_output(struct wlr_output *output)
@@ -44,6 +32,81 @@ static void handle_signal(int sig);
 
 static struct playos_compositor *g_compositor = NULL;
 
+/* ── Per-toplevel surface tracking (Sprint 7) ─────────────────── */
+struct playos_toplevel_track {
+    struct playos_compositor *c;
+    struct wlr_scene_tree    *tree;
+    struct wl_client         *client;
+    enum playos_trusted_role  role;
+    struct wl_list            link;  /* c->toplevels */
+    struct wl_listener        commit;
+    struct wl_listener        destroy;
+};
+
+/* Raise shell, then game, then overlay so the Z order stays
+ * shell-bottom / game-middle / overlay-top above the background rect. */
+static void
+compositor_restack(struct playos_compositor *c)
+{
+    if (c->shell_tree)
+        wlr_scene_node_raise_to_top(&c->shell_tree->node);
+    if (c->game_tree)
+        wlr_scene_node_raise_to_top(&c->game_tree->node);
+    if (c->overlay_tree)
+        wlr_scene_node_raise_to_top(&c->overlay_tree->node);
+}
+
+/* Resolve a client to its trusted role. Unclaimed clients are only treated
+ * as the game while the foreground state machine actually expects one
+ * (GAME_STARTING or later). Before any game is expected — e.g. the shell
+ * mapping its window before it has registered as trusted — the surface is
+ * left unclassified so it is not mistakenly placed in the game tree. */
+static enum playos_trusted_role
+compositor_role_for_client(struct playos_compositor *c,
+                           struct wl_client *client)
+{
+    if (client == c->shell_client)
+        return PLAYOS_ROLE_SHELL;
+    if (client == c->overlay_client)
+        return PLAYOS_ROLE_OVERLAY;
+
+    switch (c->fg_state) {
+    case PLAYOS_FG_GAME_STARTING:
+    case PLAYOS_FG_GAME_FOREGROUND:
+    case PLAYOS_FG_PLAYOS_UI_FOREGROUND_WITH_GAME_BACKGROUND:
+    case PLAYOS_FG_TERMINATING_GAME:
+        return PLAYOS_ROLE_GAME;
+    default:
+        return PLAYOS_ROLE_NONE;
+    }
+}
+
+/* Re-resolve every tracked toplevel's role from the current
+ * trusted-client claims and rebuild shell/game/overlay tree pointers. */
+void
+playos_compositor_reclassify_toplevels(struct playos_compositor *c)
+{
+    struct playos_toplevel_track *track;
+
+    c->shell_tree   = NULL;
+    c->game_tree    = NULL;
+    c->overlay_tree = NULL;
+
+    wl_list_for_each(track, &c->toplevels, link) {
+        track->role = compositor_role_for_client(c, track->client);
+
+        if (track->role == PLAYOS_ROLE_SHELL && !c->shell_tree)
+            c->shell_tree = track->tree;
+        else if (track->role == PLAYOS_ROLE_GAME && !c->game_tree)
+            c->game_tree = track->tree;
+        else if (track->role == PLAYOS_ROLE_OVERLAY && !c->overlay_tree)
+            c->overlay_tree = track->tree;
+    }
+
+    compositor_restack(c);
+    playos_state_refresh(c);
+}
+
 void
 playos_compositor_init(struct playos_compositor *c, enum playos_backend backend)
 {
@@ -57,7 +120,17 @@ playos_compositor_init(struct playos_compositor *c, enum playos_backend backend)
      * no-op for listeners that were never attached */
     wl_list_init(&c->new_output.link);
     wl_list_init(&c->new_xdg_surface.link);
+    wl_list_init(&c->new_input.link);
     wl_list_init(&c->frame.link);
+    wl_list_init(&c->toplevels);
+    wl_list_init(&c->overlay_resources);
+
+    /* Sprint 7: foreground state machine + compositor.sock IPC client */
+    c->compositor_sock_fd     = -1;
+    c->ipc_source             = NULL;
+    c->ipc_reconnect_timer    = NULL;
+    c->ipc_reconnect_delay_ms = 100;
+    playos_state_init(c);
 }
 
 int
@@ -238,6 +311,14 @@ playos_compositor_start(struct playos_compositor *c)
         return -1;
     }
 
+    /* ── PlayOS trusted overlay protocol ─────────────── */
+    if (playos_overlay_create(c) != 0) {
+        playos_diag_fatal(PLAYOS_DIAG_PHASE_INIT,
+                          "failed to create playos_overlay global");
+        wl_display_destroy(c->display);
+        return -1;
+    }
+
     /* ── Setup listeners ─────────────────────────────── */
     c->new_output.notify = handle_new_output;
     wl_signal_add(&c->backend->events.new_output, &c->new_output);
@@ -245,17 +326,19 @@ playos_compositor_start(struct playos_compositor *c)
     c->new_xdg_surface.notify = handle_new_xdg_toplevel;
     wl_signal_add(&c->xdg_shell->events.new_toplevel, &c->new_xdg_surface);
 
+    /* Sprint 7: system button intercept (registered before backend start so
+     * keyboards advertised during wlr_backend_start() are not missed). */
+    playos_system_button_init(c);
+
     /* ── Create Wayland socket ───────────────────────── */
     setenv("XDG_RUNTIME_DIR", "/run/playos", 0);
 
-    const char *socket = wl_display_add_socket_auto(c->display);
-    if (!socket) {
+    if (wl_display_add_socket(c->display, c->socket_name) < 0) {
         playos_diag_fatal(PLAYOS_DIAG_PHASE_INIT,
                           "failed to add Wayland socket");
         wl_display_destroy(c->display);
         return -1;
     }
-    c->socket_name = socket;
 
     /* ── Start backend ───────────────────────────────── */
     fprintf(stderr, "compositor: starting backend...\n");
@@ -271,6 +354,9 @@ playos_compositor_start(struct playos_compositor *c)
 
     c->state   = PLAYOS_STATE_READY;
     c->running = true;
+
+    /* Sprint 7: connect to playos-init's compositor.sock server */
+    playos_compositor_ipc_start(c);
 
     wlr_log(WLR_INFO, "playos-compositor: ready, socket=%s, backend=%s",
             c->socket_name,
@@ -306,7 +392,11 @@ playos_compositor_destroy(struct playos_compositor *c)
      * that signal listener lists are empty when objects are freed */
     wl_list_remove(&c->new_output.link);
     wl_list_remove(&c->new_xdg_surface.link);
+    wl_list_remove(&c->new_input.link);
     wl_list_remove(&c->frame.link);
+
+    /* Sprint 7: disconnect compositor.sock IPC */
+    playos_compositor_ipc_stop(c);
 
     if (c->display)
         wl_display_destroy(c->display);
@@ -426,50 +516,66 @@ handle_new_output(struct wl_listener *listener, void *data)
 static void
 handle_new_xdg_toplevel(struct wl_listener *listener, void *data)
 {
-    struct playos_compositor *c =
-        wl_container_of(listener, c, new_xdg_surface);
+    struct playos_compositor *c = g_compositor;
     struct wlr_xdg_toplevel *toplevel = data;
     struct wlr_xdg_surface *xdg_surface = toplevel->base;
+    struct wl_client *client = wl_resource_get_client(xdg_surface->resource);
+
+    (void)listener;
 
     wlr_log(WLR_INFO, "playos-compositor: new xdg_toplevel surface");
 
-    struct playos_toplevel *t = calloc(1, sizeof(*t));
-    if (!t)
-        return;
-    t->compositor   = c;
-    t->xdg_surface  = xdg_surface;
-
-    /* Add surface to scene tree for fullscreen layout */
-    t->scene_tree =
+    struct wlr_scene_tree *tree =
         wlr_scene_xdg_surface_create(&c->scene->tree, xdg_surface);
-    if (!t->scene_tree) {
+    if (!tree) {
         wlr_log(WLR_ERROR, "playos-compositor: failed to add surface to scene");
-        free(t);
         return;
     }
-    wlr_scene_node_set_position(&t->scene_tree->node, 0, 0);
-    wlr_scene_node_raise_to_top(&t->scene_tree->node);
 
-    /* The initial configure is sent from the commit handler once
-     * the client performs its first commit (see handle_toplevel_commit) */
-    t->commit.notify = handle_toplevel_commit;
-    wl_signal_add(&xdg_surface->surface->events.commit, &t->commit);
+    wlr_scene_node_set_position(&tree->node, 0, 0);
 
-    t->destroy.notify = handle_toplevel_destroy;
-    wl_signal_add(&xdg_surface->events.destroy, &t->destroy);
+    struct playos_toplevel_track *track = calloc(1, sizeof(*track));
+    if (!track) {
+        wlr_log(WLR_ERROR, "playos-compositor: out of memory tracking toplevel");
+        wlr_scene_node_destroy(&tree->node);
+        return;
+    }
 
-    wlr_log(WLR_INFO, "playos-compositor: surface added to scene");
+    track->c      = c;
+    track->tree   = tree;
+    track->client = client;
+
+    /* Append in chronological order; reclassification below resolves each
+     * surface's role and rebuilds the shell/game/overlay tree pointers. */
+    wl_list_insert(c->toplevels.prev, &track->link);
+
+    track->commit.notify = handle_toplevel_commit;
+    wl_signal_add(&xdg_surface->surface->events.commit, &track->commit);
+
+    track->destroy.notify = handle_toplevel_destroy;
+    wl_signal_add(&xdg_surface->events.destroy, &track->destroy);
+
+    playos_compositor_reclassify_toplevels(c);
+
+    const char *role_name =
+        track->role == PLAYOS_ROLE_SHELL   ? "shell"     :
+        track->role == PLAYOS_ROLE_OVERLAY ? "overlay"   :
+        track->role == PLAYOS_ROLE_GAME    ? "game"      : "unclaimed";
+
+    wlr_log(WLR_INFO, "playos-compositor: %s surface added to scene (role %d)",
+            role_name, (int)track->role);
 }
 
 static void
 handle_toplevel_commit(struct wl_listener *listener, void *data)
 {
-    struct playos_toplevel *t = wl_container_of(listener, t, commit);
-    struct playos_compositor *c = t->compositor;
+    struct playos_toplevel_track *track =
+        wl_container_of(listener, track, commit);
+    struct playos_compositor *c = track->c;
     struct wlr_surface *surface = data;
-
     struct wlr_xdg_surface *xdg_surface =
         wlr_xdg_surface_try_from_wlr_surface(surface);
+
     if (!xdg_surface || xdg_surface->role != WLR_XDG_SURFACE_ROLE_TOPLEVEL)
         return;
 
@@ -481,20 +587,44 @@ handle_toplevel_commit(struct wl_listener *listener, void *data)
         int h = c->output_height > 0 ? c->output_height : 0;
         wlr_xdg_toplevel_set_size(xdg_surface->toplevel, w, h);
     }
+
+    /* Sprint 7 first-frame rule: a game's first committed buffer while we
+     * are waiting in GAME_STARTING means the surface is ready. */
+    if (track->role == PLAYOS_ROLE_GAME &&
+        xdg_surface->surface->current.buffer != NULL) {
+        playos_state_game_surface_ready(c);
+    }
 }
 
 static void
 handle_toplevel_destroy(struct wl_listener *listener, void *data)
 {
-    struct playos_toplevel *t = wl_container_of(listener, t, destroy);
+    struct playos_toplevel_track *track =
+        wl_container_of(listener, track, destroy);
+    struct playos_compositor *c = track->c;
+    enum playos_trusted_role role = track->role;
 
     (void)data;
 
-    /* wlroots 0.20 asserts all listeners are detached before the
-     * surface/signal is freed */
-    wl_list_remove(&t->commit.link);
-    wl_list_remove(&t->destroy.link);
-    free(t);
+    if (role == PLAYOS_ROLE_SHELL && c->shell_tree == track->tree)
+        c->shell_tree = NULL;
+    else if (role == PLAYOS_ROLE_GAME && c->game_tree == track->tree)
+        c->game_tree = NULL;
+    else if (role == PLAYOS_ROLE_OVERLAY && c->overlay_tree == track->tree)
+        c->overlay_tree = NULL;
+
+    wl_list_remove(&track->commit.link);
+    wl_list_remove(&track->destroy.link);
+    wl_list_remove(&track->link);
+
+    free(track);
+
+    if (role == PLAYOS_ROLE_GAME)
+        playos_state_game_exited(c, false);
+    else
+        playos_state_refresh(c);
+
+    compositor_restack(c);
 }
 
 static void

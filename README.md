@@ -47,7 +47,6 @@ Note: `playos-init` also defines `PLAYOS_SOCK_COMPOSITOR = /run/playos/composito
 ### Games (untrusted Wayland clients)
 
 - Get GPU access only through EGL/Wayland via the standard `wl_compositor` + `xdg_shell` globals; they never get DRM/KMS.
-- `playos_game_launch_v1` is declared in the protocol XML but not implemented server-side yet.
 
 ### System / hardware
 

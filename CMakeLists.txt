@@ -56,6 +56,10 @@ set(COMPOSITOR_SOURCES
     src/compositor.c
     src/trusted_client.c
     src/playos_manager.c
+    src/state_machine.c
+    src/compositor_ipc.c
+    src/overlay_manager.c
+    src/system_button.c
     src/readiness.c
     src/diagnostics.c
     src/gpu_discovery.c
@@ -129,6 +133,10 @@ if(BUILD_TESTS)
         src/compositor.c
         src/trusted_client.c
         src/playos_manager.c
+        src/state_machine.c
+        src/compositor_ipc.c
+        src/overlay_manager.c
+        src/system_button.c
         src/readiness.c
         src/diagnostics.c
         src/gpu_discovery.c
@@ -178,6 +186,10 @@ if(BUILD_TESTS)
         src/compositor.c
         src/trusted_client.c
         src/playos_manager.c
+        src/state_machine.c
+        src/compositor_ipc.c
+        src/overlay_manager.c
+        src/system_button.c
         src/readiness.c
         src/diagnostics.c
         src/gpu_discovery.c

@@ -45,6 +45,11 @@ playos_trusted_client_claim(struct playos_compositor *c,
                 wl_client_get_fd(client));
     }
 
+    /* The client may have created its Wayland surface (and been classified
+     * as a game) before claiming its role — e.g. the shell maps its window
+     * before calling register_shell. Re-run classification now. */
+    playos_compositor_reclassify_toplevels(c);
+
     return true;
 }
 

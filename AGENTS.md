@@ -1,6 +1,6 @@
 # AGENTS.md — playos-compositor
 
-> **Implementation status:** 🟢 Sprint 4 Complete — Native DRM/KMS backend, GPU discovery via `drmGetDevices2()`, EGL/GLES2 hardware-accelerated rendering, diagnostics logging. 14 source files across `src/`, protocol XML, headless/nested test suites, and a hardware test client.
+> **Implementation status:** 🟢 Sprint 7 Complete — Native DRM/KMS backend, GPU discovery via `drmGetDevices2()`, EGL/GLES2 hardware-accelerated rendering, per-toplevel xdg surface tracking, Sprint 7 foreground state machine (`GAME_STARTING` → `GAME_FOREGROUND` → overlay → shell), compositor.sock IPC client, trusted shell/overlay registration, and system-button interception. 14 source files across `src/`, protocol XML, headless/nested test suites, and a hardware test client.
 
 This repository implements the **PlayOS Wayland compositor** — a wlroots-based process that permanently owns the DRM/KMS device, manages all surfaces (shell, game, overlay), enforces the first-frame rule, and intercepts the system button at the libinput level.
 
@@ -41,21 +41,25 @@ SHELL_FOREGROUND
 ```
 src/
 ├── main.c                  ← Entry point, CLI args, backend selection (headless/nested/drm)
-├── compositor.c            ← Central state machine, surface management, event loop
-├── compositor.h            ← Internal types, state enum, public compositor API
+├── compositor.c            ← Surface management, per-toplevel tracking, event loop
+├── state_machine.c         ← Sprint 7 foreground state machine + tree visibility
+├── compositor_ipc.c        ← compositor.sock IPC client (init ↔ compositor)
+├── trusted_client.c        ← Trusted shell/overlay client registration
+├── playos_manager.c        ← playos_manager_v1 global (register_shell / register_overlay)
+├── overlay_manager.c       ← playos_overlay_v1 global + overlay show/hide
+├── system_button.c         ← PLAYOS_BUTTON_SYSTEM interception (Sprint 7)
 ├── gpu_discovery.c/.h      ← GPU discovery via drmGetDevices2(), scoring system (ADR-0008)
-├── drm_backend.c/.h        ← Native DRM/KMS backend (Sprint 4)
+├── drm_backend.c/.h        ← Native DRM/KMS backend
 ├── output_modes.c/.h       ← Connector enumeration, mode selection, refresh rate
 ├── renderer_gbm_egl.c/.h   ← GBM/EGL hardware-accelerated renderer
-├── diagnostics.c/.h        ← 7-phase startup logging to /run/playos/log/compositor.log
-├── readiness.c             ← Readiness signaling helper (notify init when compositor is up)
-└── trusted_client.c        ← Trusted client connection management
+├── diagnostics.c/.h        ← 7-phase startup logging
+└── readiness.c             ← Readiness signaling helper (notify init when compositor is up)
 
 include/
 └── compositor.h            ← Public compositor types and function declarations
 
 protocols/
-└── playos-v1.xml           ← Private Wayland protocol XML (4 interfaces)
+└── playos-v1.xml           ← Private Wayland protocol XML (playos_manager_v1, playos_overlay_v1)
 
 tools/test-client/src/
 └── main.c                  ← EGL/GLES2 hardware-accelerated test client with animated bars
