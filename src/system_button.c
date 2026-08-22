@@ -2,8 +2,10 @@
  * playos-compositor/src/system_button.c — Sprint 7 system button intercept
  *
  * Registers a seat-level input listener that consumes the reserved system
- * button (PLAYOS_BUTTON_SYSTEM, evdev BTN_MODE) before it can ever reach a
- * Wayland client. The button drives the overlay show/hide transition:
+ * buttons (PLAYOS_BUTTON_SYSTEM: BTN_MODE/KEY_PROG1/BTN_TRIGGER_HAPPY1;
+ * PLAYOS_BUTTON_QUICK_MENU: KEY_PROG2/BTN_TRIGGER_HAPPY2) before they can
+ * ever reach a Wayland client. The SYSTEM button drives the overlay
+ * show/hide transition:
  *
  *   GAME_FOREGROUND                        -> PLAYOS_UI_FOREGROUND_WITH_GAME_BACKGROUND
  *   PLAYOS_UI_FOREGROUND_WITH_GAME_BACKGROUND -> GAME_FOREGROUND
@@ -37,6 +39,25 @@ static void handle_keyboard_key(struct wl_listener *listener, void *data);
 static void handle_keyboard_destroy(struct wl_listener *listener, void *data);
 static void handle_new_input(struct wl_listener *listener, void *data);
 
+/* Reserved button keycodes (Sprint 12 T5). SYSTEM and QUICK_MENU each
+ * arrive on the Ally through several evdev nodes; every alias must be
+ * consumed at the seat layer. Keep in sync with
+ * playos-platform-api/src/backends/backend_evdev.c. */
+static int
+is_reserved_keycode(uint32_t keycode)
+{
+    switch (keycode) {
+    case BTN_MODE:            /* Xbox/Guide button            */
+    case KEY_PROG1:           /* Ally Armoury Crate / Home    */
+    case BTN_TRIGGER_HAPPY1:  /* Ally Armoury Crate alt       */
+    case KEY_PROG2:           /* Ally Command Center          */
+    case BTN_TRIGGER_HAPPY2:  /* Ally Command Center alt      */
+        return 1;
+    default:
+        return 0;
+    }
+}
+
 static void
 handle_keyboard_key(struct wl_listener *listener, void *data)
 {
@@ -44,18 +65,26 @@ handle_keyboard_key(struct wl_listener *listener, void *data)
     struct playos_compositor *c = pk->c;
     struct wlr_keyboard_key_event *event = data;
 
-    /* Consume the reserved system button on press. It must never be
-     * forwarded to a client — returning here is the whole intercept. */
-    if (event->keycode == BTN_MODE &&
+    /* Consume every reserved button on press. It must never be forwarded
+     * to a client — returning here is the whole intercept. (The compositor
+     * currently forwards no keyboard keys to clients at all, so this is
+     * defense at the seat layer; Landlock + group permissions deny the
+     * raw /dev/input/event* devices from game processes.) */
+    if (is_reserved_keycode(event->keycode) &&
         event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
-        wlr_log(WLR_INFO, "playos-compositor: system button pressed "
-                "(fg_state=%d)", (int)c->fg_state);
+        wlr_log(WLR_INFO, "playos-compositor: reserved button 0x%x pressed "
+                "(fg_state=%d)", event->keycode, (int)c->fg_state);
 
-        if (c->fg_state == PLAYOS_FG_GAME_FOREGROUND) {
-            playos_overlay_manager_show(c);
-        } else if (c->fg_state ==
-                   PLAYOS_FG_PLAYOS_UI_FOREGROUND_WITH_GAME_BACKGROUND) {
-            playos_overlay_manager_hide(c);
+        /* SYSTEM toggles the overlay; QUICK_MENU is consumed for now
+         * (a dedicated quick-menu UI is a later sprint). */
+        if (event->keycode == BTN_MODE || event->keycode == KEY_PROG1 ||
+            event->keycode == BTN_TRIGGER_HAPPY1) {
+            if (c->fg_state == PLAYOS_FG_GAME_FOREGROUND) {
+                playos_overlay_manager_show(c);
+            } else if (c->fg_state ==
+                       PLAYOS_FG_PLAYOS_UI_FOREGROUND_WITH_GAME_BACKGROUND) {
+                playos_overlay_manager_hide(c);
+            }
         }
         return;
     }
