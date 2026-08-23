@@ -66,10 +66,13 @@ handle_keyboard_key(struct wl_listener *listener, void *data)
     struct wlr_keyboard_key_event *event = data;
 
     /* Consume every reserved button on press. It must never be forwarded
-     * to a client — returning here is the whole intercept. (The compositor
+     * to a client — returning here is the whole intercept. The compositor
      * currently forwards no keyboard keys to clients at all, so this is
-     * defense at the seat layer; Landlock + group permissions deny the
-     * raw /dev/input/event* devices from game processes.) */
+     * defense at the seat layer. The game's normal input path is raw evdev
+     * via libplayos (which strips reserved buttons), and /dev/input IS
+     * granted read-only to the game so the built-in controller works; the
+     * reserved-button boundary is therefore enforced here and in the
+     * libplayos snapshot mask, not by denying /dev/input. */
     if (is_reserved_keycode(event->keycode) &&
         event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
         wlr_log(WLR_INFO, "playos-compositor: reserved button 0x%x pressed "
