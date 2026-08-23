@@ -9,6 +9,7 @@
 #include <string.h>
 #include <signal.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 /* ── Output configuration: use the state-based API (available 0.16+) ──── */
 static bool
@@ -338,6 +339,25 @@ playos_compositor_start(struct playos_compositor *c)
                           "failed to add Wayland socket");
         wl_display_destroy(c->display);
         return -1;
+    }
+
+    /* libwayland-server creates the socket owner-writable (0755 under the
+     * default umask). Games run as playos-game (uid 1001), not root, so an
+     * owner-only socket would make every unprivileged game's
+     * wl_display_connect() fail with EACCES ("Failed to connect to Wayland
+     * display"). Open the socket so the sandboxed game identity can reach
+     * the compositor; per-client trust is enforced at the playos_manager_v1
+     * protocol bind (SO_PEERCRED against playos-trusted), not at the socket. */
+    {
+        char sockpath[256];
+        snprintf(sockpath, sizeof(sockpath), "/run/playos/%s",
+                 c->socket_name);
+        if (chmod(sockpath, 0666) != 0) {
+            playos_diag_fatal(PLAYOS_DIAG_PHASE_INIT,
+                              "failed to chmod Wayland socket");
+            wl_display_destroy(c->display);
+            return -1;
+        }
     }
 
     /* ── Start backend ───────────────────────────────── */
