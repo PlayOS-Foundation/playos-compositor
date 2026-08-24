@@ -63,6 +63,7 @@ set(COMPOSITOR_SOURCES
     src/readiness.c
     src/diagnostics.c
     src/gpu_discovery.c
+    src/gpu_score.c
     src/drm_backend.c
     src/output_modes.c
     src/renderer_gbm_egl.c
@@ -125,7 +126,22 @@ install(TARGETS playos-compositor RUNTIME DESTINATION bin)
 option(BUILD_TESTS "Build test programs" ON)
 
 if(BUILD_TESTS)
+    enable_testing()
     add_subdirectory(tools/test-client)
+
+    # GPU-selection scoring unit test (Sprint 13 T1): synthetic vendor data,
+    # no DRM/Wayland dependencies.
+    add_executable(gpu-select-test
+        tests/test_gpu_select.c
+        src/gpu_score.c
+    )
+    target_include_directories(gpu-select-test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(gpu-select-test PRIVATE -Wall -Wextra)
+    endif()
+    add_test(NAME gpu-select COMMAND gpu-select-test)
 
     # Headless integration test
     add_executable(compositor-headless-test
@@ -140,6 +156,7 @@ if(BUILD_TESTS)
         src/readiness.c
         src/diagnostics.c
         src/gpu_discovery.c
+        src/gpu_score.c
         src/drm_backend.c
         src/output_modes.c
         src/renderer_gbm_egl.c
@@ -193,6 +210,7 @@ if(BUILD_TESTS)
         src/readiness.c
         src/diagnostics.c
         src/gpu_discovery.c
+        src/gpu_score.c
         src/drm_backend.c
         src/output_modes.c
         src/renderer_gbm_egl.c

@@ -4,18 +4,20 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "diagnostics.h"
+#include "gpu_score.h"
 
 /**
  * gpu_discovery.h — Deterministic GPU discovery via DRM enumeration
  *
  * Implements ADR-0008: enumerate DRM devices with drmGetDevices2(),
  * resolve PCI vendor/device identity, detect active connectors, and
- * select the correct GPU. Never hardcodes /dev/dri/card0.
+ * select the correct GPU. Never hardcodes a fixed DRM device path.
+ *
+ * Selection scoring (see gpu_score.h): eDP +1000, connected output +500,
+ * AMD +300, Intel +100, other vendor +1. Highest total wins; NVIDIA falls
+ * into "other" (+1) and is therefore effectively last resort on hybrid
+ * systems.
  */
-
-/* Known PCI vendor IDs */
-#define PCI_VENDOR_AMD   0x1002
-#define PCI_VENDOR_INTEL 0x8086
 
 /* Maximum DRM devices to enumerate */
 #define PLAYOS_MAX_DRM_DEVICES 8
@@ -35,12 +37,6 @@ struct playos_gpu {
 
 /**
  * Discover and select the best GPU.
- *
- * Selection priority (ADR-0008):
- *   1. Device with an active connected display (eDP/LVDS preferred)
- *   2. First AMD device
- *   3. First Intel device
- *   4. First valid DRM device
  *
  * On success, fills *gpu and returns 0.
  * On failure, sets gpu->valid = false and returns -1, logging the reason.

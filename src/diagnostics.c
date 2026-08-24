@@ -1,4 +1,5 @@
 #include "diagnostics.h"
+#include "gpu_score.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -96,11 +97,12 @@ playos_diag_log_gpu(const struct playos_gpu_info *info)
 {
     char buf[512];
     snprintf(buf, sizeof(buf),
-             "card=%s render=%s vendor=0x%04x device=0x%04x "
+             "card=%s render=%s vendor=0x%04x(%s) device=0x%04x "
              "connector=%s mode=%dx%d@%dHz eDP=%s",
              info->card_path,
              info->render_path,
              info->pci_vendor_id,
+             playos_gpu_vendor_name(info->pci_vendor_id),
              info->pci_device_id,
              info->connector_name[0] ? info->connector_name : "none",
              info->mode_width,

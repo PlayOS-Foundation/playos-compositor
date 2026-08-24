@@ -11,10 +11,11 @@
 /**
  * gpu_discovery.c — Discover and select the correct GPU
  *
- * Algorithm (ADR-0008):
+ * Algorithm (ADR-0008, scoring in gpu_score.c):
  *   1. Enumerate all DRM devices via drmGetDevices2()
  *   2. For each: resolve PCI vendor/device, check for active connector
- *   3. Select: connected+AMD > connected+Intel > first AMD > first Intel > first valid
+ *   3. Score: eDP +1000, connected +500, AMD +300, Intel +100, other +1
+ *   4. Select the highest-scoring candidate; NVIDIA scores as "other" (+1)
  *
  * Preference for internal panels: eDP (DRM_MODE_CONNECTOR_eDP) or LVDS.
  */
@@ -62,7 +63,7 @@ device_has_connector(int fd, const char *card_path,
     return found;
 }
 
-/* ── Candidate scoring ──────────────────────────────────── */
+/* ── Candidate scoring (pure, in gpu_score.c) ──────────────── */
 struct gpu_candidate {
     int         index;
     char        primary_path[256];
@@ -74,25 +75,6 @@ struct gpu_candidate {
     char        connector_name[64];
     int         score;
 };
-
-/* Scoring: eDP+connected+AMD = best. Scale: */
-#define SCORE_EDP           1000
-#define SCORE_CONNECTED      500
-#define SCORE_AMD            300
-#define SCORE_INTEL          100
-#define SCORE_VALID            1
-
-static int
-calculate_score(const struct gpu_candidate *c)
-{
-    int s = 0;
-    if (c->is_edp)               s += SCORE_EDP;
-    else if (c->has_connected_output) s += SCORE_CONNECTED;
-    if (c->vendor_id == PCI_VENDOR_AMD)   s += SCORE_AMD;
-    else if (c->vendor_id == PCI_VENDOR_INTEL) s += SCORE_INTEL;
-    else s += SCORE_VALID;
-    return s;
-}
 
 /* ── Public API ─────────────────────────────────────────── */
 
@@ -166,7 +148,9 @@ playos_gpu_discover(struct playos_gpu *gpu)
             close(fd);
         }
 
-        c.score = calculate_score(&c);
+        c.score = playos_gpu_score(c.vendor_id,
+                                   c.has_connected_output,
+                                   c.is_edp);
 
         if (c.score > best_score) {
             best = c;
