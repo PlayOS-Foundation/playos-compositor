@@ -73,7 +73,6 @@ struct gpu_candidate {
     bool        has_connected_output;
     bool        is_edp;
     char        connector_name[64];
-    int         score;
 };
 
 /* ── Public API ─────────────────────────────────────────── */
@@ -102,9 +101,9 @@ playos_gpu_discover(struct playos_gpu *gpu)
         return -1;
     }
 
-    struct gpu_candidate best;
-    int best_score = -1;
-    memset(&best, 0, sizeof(best));
+    struct gpu_candidate cands[PLAYOS_MAX_DRM_DEVICES];
+    struct playos_gpu_score_input inputs[PLAYOS_MAX_DRM_DEVICES];
+    size_t n_cands = 0;
 
     /* Evaluate each device */
     for (int i = 0; i < count; i++) {
@@ -148,28 +147,28 @@ playos_gpu_discover(struct playos_gpu *gpu)
             close(fd);
         }
 
-        c.score = playos_gpu_score(c.vendor_id,
-                                   c.has_connected_output,
-                                   c.is_edp);
-
-        if (c.score > best_score) {
-            best = c;
-            best_score = c.score;
-        }
+        cands[n_cands] = c;
+        inputs[n_cands].vendor_id = c.vendor_id;
+        inputs[n_cands].has_connected_output = c.has_connected_output;
+        inputs[n_cands].is_edp = c.is_edp;
+        n_cands++;
     }
 
     /* Clean up enumeration */
     for (int i = 0; i < count; i++)
         drmFreeDevice(&devices[i]);
 
-    if (best_score < 0) {
+    int best_idx = playos_gpu_select_index(inputs, n_cands);
+    if (best_idx < 0) {
         playos_diag_log_phase(PLAYOS_DIAG_PHASE_GPU_DISCOVERY,
                               "no suitable GPU found");
         return -1;
     }
 
+    struct gpu_candidate *best = &cands[best_idx];
+
     /* Open the selected device */
-    gpu->card_fd = open(best.primary_path, O_RDWR | O_CLOEXEC);
+    gpu->card_fd = open(best->primary_path, O_RDWR | O_CLOEXEC);
     if (gpu->card_fd < 0) {
         playos_diag_log_fallback("simpledrm",
                                  "cannot open primary node for selected GPU");
@@ -177,16 +176,16 @@ playos_gpu_discover(struct playos_gpu *gpu)
                                  "cannot open primary DRM node");
     }
 
-    if (best.render_path[0]) {
-        gpu->render_fd = open(best.render_path, O_RDWR | O_CLOEXEC);
+    if (best->render_path[0]) {
+        gpu->render_fd = open(best->render_path, O_RDWR | O_CLOEXEC);
         if (gpu->render_fd < 0)
-            gpu->render_fd = open(best.render_path, O_RDONLY | O_CLOEXEC);
+            gpu->render_fd = open(best->render_path, O_RDONLY | O_CLOEXEC);
     }
 
-    strncpy(gpu->card_path, best.primary_path, sizeof(gpu->card_path) - 1);
-    strncpy(gpu->render_path, best.render_path, sizeof(gpu->render_path) - 1);
-    gpu->pci_vendor_id = best.vendor_id;
-    gpu->pci_device_id = best.device_id;
+    strncpy(gpu->card_path, best->primary_path, sizeof(gpu->card_path) - 1);
+    strncpy(gpu->render_path, best->render_path, sizeof(gpu->render_path) - 1);
+    gpu->pci_vendor_id = best->vendor_id;
+    gpu->pci_device_id = best->device_id;
     gpu->valid = true;
 
     /* Log the selected GPU */
@@ -194,14 +193,14 @@ playos_gpu_discover(struct playos_gpu *gpu)
     memset(&info, 0, sizeof(info));
     strncpy(info.card_path, gpu->card_path, sizeof(info.card_path) - 1);
     strncpy(info.render_path, gpu->render_path, sizeof(info.render_path) - 1);
-    strncpy(info.connector_name, best.connector_name,
+    strncpy(info.connector_name, best->connector_name,
             sizeof(info.connector_name) - 1);
     info.pci_vendor_id = gpu->pci_vendor_id;
     info.pci_device_id = gpu->pci_device_id;
     info.mode_width = 0;    /* filled by output_modes later */
     info.mode_height = 0;
     info.mode_refresh_mhz = 0;
-    info.is_edp = best.is_edp;
+    info.is_edp = best->is_edp;
     playos_diag_log_gpu(&info);
 
     return 0;
