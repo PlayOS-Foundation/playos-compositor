@@ -50,8 +50,10 @@ is_reserved_keycode(uint32_t keycode)
     case BTN_MODE:            /* Xbox/Guide button            */
     case KEY_PROG1:           /* Ally Armoury Crate / Home    */
     case BTN_TRIGGER_HAPPY1:  /* Ally Armoury Crate alt       */
+    case KEY_F17:             /* Ally Armoury Crate / Home (hid-asus) */
     case KEY_PROG2:           /* Ally Command Center          */
     case BTN_TRIGGER_HAPPY2:  /* Ally Command Center alt      */
+    case KEY_F16:             /* Ally Command Center (hid-asus) */
         return 1;
     default:
         return 0;
@@ -79,9 +81,12 @@ handle_keyboard_key(struct wl_listener *listener, void *data)
                 "(fg_state=%d)", event->keycode, (int)c->fg_state);
 
         /* SYSTEM toggles the overlay; QUICK_MENU is consumed for now
-         * (a dedicated quick-menu UI is a later sprint). */
+         * (a dedicated quick-menu UI is a later sprint). F17 is the
+         * hid-asus alias of the Ally Armoury Crate / Home button; F16 is
+         * the Command Center alias and is consumed as QUICK_MENU. */
         if (event->keycode == BTN_MODE || event->keycode == KEY_PROG1 ||
-            event->keycode == BTN_TRIGGER_HAPPY1) {
+            event->keycode == BTN_TRIGGER_HAPPY1 ||
+            event->keycode == KEY_F17) {
             if (c->fg_state == PLAYOS_FG_GAME_FOREGROUND) {
                 playos_overlay_manager_show(c);
             } else if (c->fg_state ==
