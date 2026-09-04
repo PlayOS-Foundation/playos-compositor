@@ -79,6 +79,14 @@ playos_state_transition(struct playos_compositor *c,
     if (c->fg_state == state)
         return;
 
+    /* When the game is no longer foreground (game exit/termination or the
+     * shell taking over), the overlay must be treated as hidden so the next
+     * game can show it again. Without this reset a game quit from the overlay
+     * leaves overlay_visible=true and later ShowOverlay requests no-op. */
+    if (state == PLAYOS_FG_SHELL_FOREGROUND ||
+        state == PLAYOS_FG_TERMINATING_GAME)
+        c->overlay_visible = false;
+
     const char *old_name = foreground_state_name(c->fg_state);
     const char *new_name = foreground_state_name(state);
 
