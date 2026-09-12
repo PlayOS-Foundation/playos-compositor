@@ -82,10 +82,17 @@ playos_state_transition(struct playos_compositor *c,
     /* When the game is no longer foreground (game exit/termination or the
      * shell taking over), the overlay must be treated as hidden so the next
      * game can show it again. Without this reset a game quit from the overlay
-     * leaves overlay_visible=true and later ShowOverlay requests no-op. */
+     * leaves overlay_visible=true and later ShowOverlay requests no-op.
+     *
+     * Tell the overlay client too: it gates its own input handling on
+     * about_to_show/about_to_hide, so a silent reset would leave a stale
+     * "visible" client that keeps acting on the gamepad. */
     if (state == PLAYOS_FG_SHELL_FOREGROUND ||
-        state == PLAYOS_FG_TERMINATING_GAME)
+        state == PLAYOS_FG_TERMINATING_GAME) {
+        if (c->overlay_visible)
+            playos_overlay_send_about_to_hide(c);
         c->overlay_visible = false;
+    }
 
     const char *old_name = foreground_state_name(c->fg_state);
     const char *new_name = foreground_state_name(state);
