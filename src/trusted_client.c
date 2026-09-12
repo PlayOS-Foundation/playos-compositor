@@ -56,7 +56,16 @@ playos_trusted_client_claim(struct playos_compositor *c,
 {
     /* Check if role already taken */
     if (role == PLAYOS_ROLE_SHELL && c->shell_client) {
-        wlr_log(WLR_ERROR, "trusted: shell role already taken");
+        /* Log who still holds it: after an installer handoff this should never
+         * be reachable (the shell has exited and its client was destroyed), so
+         * a hit here means the old client outlived its process. */
+        pid_t holder_pid = 0;
+        uid_t holder_uid = 0;
+        gid_t holder_gid = 0;
+        wl_client_get_credentials(c->shell_client, &holder_pid, &holder_uid,
+                                  &holder_gid);
+        wlr_log(WLR_ERROR, "trusted: shell role already taken (holder pid %d)",
+                (int)holder_pid);
         return false;
     }
     if (role == PLAYOS_ROLE_OVERLAY && c->overlay_client) {
