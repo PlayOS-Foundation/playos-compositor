@@ -4,6 +4,7 @@
 #include "drm_backend.h"
 #include "output_modes.h"
 #include "renderer_gbm_egl.h"
+#include <wlr/types/wlr_screencopy_v1.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -294,6 +295,15 @@ playos_compositor_start(struct playos_compositor *c)
         wl_display_destroy(c->display);
         return -1;
     }
+
+    /* ── Screencopy (Sprint 14 screenshots) ──────────── */
+    /* Exposes zwlr_screencopy_manager_v1 so a trusted client (the shell) can
+     * capture the composited output. This is the only way a screenshot can
+     * include a running game's surface — a client that reads its own
+     * framebuffer only ever sees itself. */
+    if (!wlr_screencopy_manager_v1_create(c->display))
+        wlr_log(WLR_ERROR, "playos-compositor: failed to create screencopy "
+                "manager — full-output screenshots unavailable");
 
     /* ── Minimal seat ────────────────────────────────── */
     c->seat = wlr_seat_create(c->display, "seat0");
