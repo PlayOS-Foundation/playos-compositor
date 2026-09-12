@@ -133,6 +133,14 @@ playos_compositor_init(struct playos_compositor *c, enum playos_backend backend)
     c->ipc_reconnect_timer    = NULL;
     c->ipc_reconnect_delay_ms = 100;
     playos_state_init(c);
+
+    /* Must come after the memset above: it installs the notify handlers for
+     * the trusted-client destroy listeners. Without this call both listeners
+     * sit at notify == NULL, wl_client_add_destroy_listener() still registers
+     * them, and libwayland's wl_client_destroy() then calls through NULL when
+     * the client disconnects - a SIGSEGV at rip 0x0 that took the whole
+     * compositor down the first time the overlay exited (installer handoff). */
+    playos_trusted_client_init(c);
 }
 
 int
