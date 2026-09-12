@@ -101,6 +101,10 @@ struct playos_compositor {
     struct wl_resource       *overlay_resource;
     struct wl_list            overlay_resources;  /* bound playos_overlay_v1 clients */
     enum playos_trusted_role  pending_role;
+    /* Release the role when the client disconnects, otherwise a restarted
+     * shell/overlay can never claim it again ("role already taken"). */
+    struct wl_listener        shell_client_destroy;
+    struct wl_listener        overlay_client_destroy;
 
     /* Sprint 7 foreground state machine */
     enum playos_foreground_state fg_state;
@@ -144,6 +148,8 @@ bool playos_trusted_client_claim(struct playos_compositor *c,
                                  enum playos_trusted_role role);
 bool playos_trusted_client_is_trusted(struct playos_compositor *c,
                                       struct wl_client *client);
+void playos_trusted_shell_client_gone(struct wl_listener *listener, void *data);
+void playos_trusted_overlay_client_gone(struct wl_listener *listener, void *data);
 void playos_compositor_reclassify_toplevels(struct playos_compositor *c);
 
 /* ── Trusted protocol (S5) ────────────────────────────── */

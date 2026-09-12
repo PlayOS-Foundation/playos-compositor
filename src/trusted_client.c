@@ -17,6 +17,36 @@ playos_trusted_client_init(struct playos_compositor *c)
     c->shell_client   = NULL;
     c->overlay_client = NULL;
     c->pending_role   = PLAYOS_ROLE_NONE;
+    c->shell_client_destroy.notify   = playos_trusted_shell_client_gone;
+    c->overlay_client_destroy.notify = playos_trusted_overlay_client_gone;
+}
+
+/* A trusted client can die at any time (the shell crashed on hardware and the
+ * supervisor restarted it 250 ms later). The role has to be released with the
+ * connection or the replacement process is rejected with "role already taken"
+ * and runs untrusted for the rest of the session. */
+void
+playos_trusted_shell_client_gone(struct wl_listener *listener, void *data)
+{
+    struct playos_compositor *c =
+        wl_container_of(listener, c, shell_client_destroy);
+    (void)data;
+    wlr_log(WLR_INFO, "trusted: shell client disconnected - releasing role");
+    c->shell_client = NULL;
+    wl_list_remove(&listener->link);
+    wl_list_init(&listener->link);
+}
+
+void
+playos_trusted_overlay_client_gone(struct wl_listener *listener, void *data)
+{
+    struct playos_compositor *c =
+        wl_container_of(listener, c, overlay_client_destroy);
+    (void)data;
+    wlr_log(WLR_INFO, "trusted: overlay client disconnected - releasing role");
+    c->overlay_client = NULL;
+    wl_list_remove(&listener->link);
+    wl_list_init(&listener->link);
 }
 
 bool
@@ -37,10 +67,12 @@ playos_trusted_client_claim(struct playos_compositor *c,
     /* Assign role */
     if (role == PLAYOS_ROLE_SHELL) {
         c->shell_client = client;
+        wl_client_add_destroy_listener(client, &c->shell_client_destroy);
         wlr_log(WLR_INFO, "trusted: shell client registered (pid %d)",
                 wl_client_get_fd(client));
     } else if (role == PLAYOS_ROLE_OVERLAY) {
         c->overlay_client = client;
+        wl_client_add_destroy_listener(client, &c->overlay_client_destroy);
         wlr_log(WLR_INFO, "trusted: overlay client registered (pid %d)",
                 wl_client_get_fd(client));
     }
