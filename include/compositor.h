@@ -124,6 +124,13 @@ struct playos_compositor {
     int                        ipc_reconnect_delay_ms;
 
     /* Output info */
+    /* S14 P2: per-second commit counters per role. A client that renders
+     * continuously commits once per frame, so commits/s is a faithful
+     * client-side FPS reading (measured without touching the client). */
+    unsigned                  fps_commits_shell;
+    unsigned                  fps_commits_game;
+    double                    fps_window_start;   /* CLOCK_MONOTONIC seconds */
+
     int                       output_width;
     int                       output_height;
     int                       output_refresh_mhz;

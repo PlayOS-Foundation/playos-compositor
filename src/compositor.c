@@ -731,6 +731,21 @@ handle_toplevel_commit(struct wl_listener *listener, void *data)
         wlr_xdg_toplevel_set_size(xdg_surface->toplevel, w, h);
     }
 
+    /* S14 P2: count frames per role. The first commit only maps the surface,
+     * so it is not a frame. */
+    if (!xdg_surface->initial_commit) {
+        switch (track->role) {
+        case PLAYOS_ROLE_SHELL:
+            c->fps_commits_shell++;
+            break;
+        case PLAYOS_ROLE_GAME:
+            c->fps_commits_game++;
+            break;
+        default:
+            break;
+        }
+    }
+
     /* Sprint 7 first-frame rule: a game's first committed buffer while we
      * are waiting in GAME_STARTING means the surface is ready. */
     if (track->role == PLAYOS_ROLE_GAME &&
@@ -792,6 +807,20 @@ handle_frame(struct wl_listener *listener, void *data)
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
     wlr_scene_output_send_frame_done(scene_output, &now);
+
+    /* S14 P2: once a second, log how many frames each role committed. This is
+     * the in-game FPS instrumentation - it needs nothing from the client, so it
+     * also covers non-cooperative games. scripts/perf-baseline.sh parses it. */
+    double now_s = (double)now.tv_sec + (double)now.tv_nsec * 1e-9;
+    if (c->fps_window_start == 0.0)
+        c->fps_window_start = now_s;
+    if (now_s - c->fps_window_start >= 1.0) {
+        wlr_log(WLR_INFO, "fps shell=%u game=%u (commits/s)",
+                c->fps_commits_shell, c->fps_commits_game);
+        c->fps_commits_shell = 0;
+        c->fps_commits_game = 0;
+        c->fps_window_start = now_s;
+    }
 }
 
 static void
