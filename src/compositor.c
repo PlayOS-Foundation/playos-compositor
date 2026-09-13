@@ -8,6 +8,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <dirent.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -143,6 +145,74 @@ playos_compositor_init(struct playos_compositor *c, enum playos_backend backend)
     playos_trusted_client_init(c);
 }
 
+/* S14 F3: recovery must not depend on the GPU stack. `PLAYOS_RENDERER=pixman`
+ * (set by init when it enters the recovery UI) forces the software renderer;
+ * anything else keeps wlroots' automatic choice. */
+static void
+compositor_apply_renderer_preference(void)
+{
+    const char *pref = getenv("PLAYOS_RENDERER");
+    if (!pref || !pref[0] || strcmp(pref, "auto") == 0)
+        return;
+
+    setenv("WLR_RENDERER", pref, 1);
+    wlr_log(WLR_INFO, "playos-compositor: renderer forced to '%s'", pref);
+}
+
+/* Pick the DRM device to drive, without touching the display yet: the real GPU
+ * when it is usable, otherwise the first card that has a usable output - which
+ * on a machine whose GPU driver failed is SimplEDRM over the firmware
+ * framebuffer (S14 F3). Probing first means the backend is created exactly
+ * once; retrying after wlr_renderer_init_wl_display() would register wl_shm and
+ * dmabuf globals twice and abort. */
+static int
+compositor_probe_drm_card(char *out, size_t outsz, int *w, int *h)
+{
+    struct playos_gpu gpu;
+    if (playos_gpu_discover(&gpu) == 0 && gpu.valid) {
+        struct playos_output_config cfg;
+        int ok = playos_output_select_from_fd(gpu.card_fd, &cfg) == 0;
+        snprintf(out, outsz, "%s", gpu.card_path);
+        if (ok && w && h) { *w = cfg.width; *h = cfg.height; }
+        playos_gpu_close(&gpu);
+        wlr_log(WLR_INFO, "playos-compositor: DRM device %s (discovered GPU)", out);
+        return 0;
+    }
+
+    DIR *d = opendir("/dev/dri");
+    if (!d)
+        return -1;
+
+    struct dirent *e;
+    int found = -1;
+    while ((e = readdir(d)) != NULL) {
+        if (strncmp(e->d_name, "card", 4) != 0)
+            continue;
+
+        char path[64];
+        snprintf(path, sizeof(path), "/dev/dri/%s", e->d_name);
+
+        int fd = open(path, O_RDWR | O_CLOEXEC);
+        if (fd < 0)
+            continue;
+
+        struct playos_output_config cfg;
+        if (playos_output_select_from_fd(fd, &cfg) == 0) {
+            snprintf(out, outsz, "%s", path);
+            if (w && h) { *w = cfg.width; *h = cfg.height; }
+            wlr_log(WLR_INFO,
+                    "playos-compositor: DRM device %s (no accelerated GPU - "
+                    "software path, e.g. SimplEDRM)", out);
+            found = 0;
+        }
+        close(fd);
+        if (found == 0)
+            break;
+    }
+    closedir(d);
+    return found;
+}
+
 int
 playos_compositor_start(struct playos_compositor *c)
 {
@@ -161,6 +231,8 @@ playos_compositor_start(struct playos_compositor *c)
     c->event_loop = wl_display_get_event_loop(c->display);
 
     /* ── Backend selection ──────────────────────────── */
+    compositor_apply_renderer_preference();
+
     if (c->backend_type == PLAYOS_BACKEND_DRM) {
         /* Native DRM/KMS path (Sprint 4) */
         playos_diag_log_phase(PLAYOS_DIAG_PHASE_BACKEND_START,
@@ -180,18 +252,52 @@ playos_compositor_start(struct playos_compositor *c)
         }
 
         if (!gpu.valid) {
+            /* No accelerated GPU. Before giving up on having a display, look for
+             * any DRM device with an output - on a machine whose GPU driver
+             * failed that is SimplEDRM over the firmware framebuffer, which is
+             * exactly the F3 case: recovery must still be visible. */
             playos_diag_log_fallback("simpledrm",
-                                     "GPU discovery failed after 5s, attempting headless fallback");
-            /* No GPU found — headless fallback */
-            setenv("WLR_BACKENDS", "headless", 1);
-            c->backend = wlr_backend_autocreate(c->event_loop, NULL);
-            if (!c->backend) {
-                playos_diag_fatal(PLAYOS_DIAG_PHASE_FALLBACK,
-                                  "simpledrm/headless fallback also failed");
-                wl_display_destroy(c->display);
-                return -1;
+                                     "GPU discovery failed after 5s, using the software path");
+            char card[64];
+            int pw = 0, ph = 0;
+            if (compositor_probe_drm_card(card, sizeof(card), &pw, &ph) != 0) {
+                playos_diag_log_fallback("headless",
+                                         "no DRM device with an output, falling back to headless");
+                setenv("WLR_BACKENDS", "headless", 1);
+                c->backend = wlr_backend_autocreate(c->event_loop, NULL);
+                if (!c->backend) {
+                    playos_diag_fatal(PLAYOS_DIAG_PHASE_FALLBACK,
+                                      "headless fallback also failed");
+                    wl_display_destroy(c->display);
+                    return -1;
+                }
+                /* A backend is useless without a renderer and an allocator:
+                 * wlr_output_init_render() asserts on NULL and aborts. */
+                setenv("WLR_RENDERER", "pixman", 1);
+                c->renderer = wlr_renderer_autocreate(c->backend);
+                if (c->renderer)
+                    wlr_renderer_init_wl_display(c->renderer, c->display);
+                c->allocator = wlr_allocator_autocreate(c->backend, c->renderer);
+                if (!c->renderer || !c->allocator) {
+                    playos_diag_fatal(PLAYOS_DIAG_PHASE_FALLBACK,
+                                      "headless renderer/allocator creation failed");
+                    wl_display_destroy(c->display);
+                    return -1;
+                }
+                wlr_log(WLR_INFO, "playos-compositor: using headless fallback");
+            } else {
+                if (pw && ph) {
+                    c->output_width  = pw;
+                    c->output_height = ph;
+                }
+                setenv("WLR_DRM_DEVICES", card, 1);
+                if (playos_drm_backend_start(c, c->event_loop, c->display) != 0) {
+                    playos_diag_fatal(PLAYOS_DIAG_PHASE_FALLBACK,
+                                      "software display path failed");
+                    wl_display_destroy(c->display);
+                    return -1;
+                }
             }
-            wlr_log(WLR_INFO, "playos-compositor: using simpledrm/headless fallback");
         } else {
             /* Select best output using the discovered GPU */
             struct playos_output_config output_cfg;
@@ -211,9 +317,8 @@ playos_compositor_start(struct playos_compositor *c)
 
             /* DRM backend init — uses the discovered GPU */
             if (playos_drm_backend_start(c, c->event_loop, c->display) != 0) {
-                playos_diag_log_fallback("simpledrm",
+                playos_diag_log_fallback("headless",
                                          "DRM backend start failed");
-                /* Attempt headless fallback */
                 setenv("WLR_BACKENDS", "headless", 1);
                 c->backend = wlr_backend_autocreate(c->event_loop, NULL);
                 if (!c->backend) {

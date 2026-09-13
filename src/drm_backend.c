@@ -34,12 +34,27 @@ playos_drm_backend_start(struct playos_compositor *c,
     playos_diag_log_phase(PLAYOS_DIAG_PHASE_BACKEND_START,
                           "DRM backend created");
 
-    /* Create renderer with GBM/EGL context */
+    /* Create renderer with GBM/EGL context.
+     *
+     * S14 F3: if the accelerated renderer cannot be created (broken EGL/GL, no
+     * GBM, software-only device such as SimplEDRM) retry with the pixman
+     * renderer. It is compiled into libwlroots (render/pixman), needs no GPU,
+     * and the DRM backend drives it through dumb buffers - which is what lets
+     * a recovery menu appear on a machine whose graphics are the broken part.
+     * Safe to retry here: the renderer has not been exposed to the display yet
+     * (wlr_renderer_init_wl_display runs after this), so no wl_shm/dmabuf
+     * globals are duplicated. */
     fprintf(stderr, "compositor: creating renderer...\n");
     c->renderer = wlr_renderer_autocreate(c->backend);
     if (!c->renderer) {
+        wlr_log(WLR_ERROR, "playos-compositor: accelerated renderer unavailable - "
+                           "retrying with the pixman (software) renderer");
+        setenv("WLR_RENDERER", "pixman", 1);
+        c->renderer = wlr_renderer_autocreate(c->backend);
+    }
+    if (!c->renderer) {
         return playos_diag_fatal(PLAYOS_DIAG_PHASE_BACKEND_START,
-                                 "failed to create renderer");
+                                 "failed to create renderer (gles2 and pixman)");
     }
     fprintf(stderr, "compositor: renderer created, init wl_display...\n");
     wlr_renderer_init_wl_display(c->renderer, display);
