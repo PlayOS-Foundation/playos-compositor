@@ -32,6 +32,7 @@ static void handle_toplevel_commit(struct wl_listener *listener, void *data);
 static void handle_toplevel_destroy(struct wl_listener *listener, void *data);
 static void handle_new_output(struct wl_listener *listener, void *data);
 static void handle_frame(struct wl_listener *listener, void *data);
+static void handle_output_present(struct wl_listener *listener, void *data);
 static void handle_signal(int sig);
 
 static struct playos_compositor *g_compositor = NULL;
@@ -537,6 +538,7 @@ playos_compositor_destroy(struct playos_compositor *c)
     wl_list_remove(&c->new_xdg_surface.link);
     wl_list_remove(&c->new_input.link);
     wl_list_remove(&c->frame.link);
+    wl_list_remove(&c->present.link);
 
     /* Sprint 7: disconnect compositor.sock IPC */
     playos_compositor_ipc_stop(c);
@@ -645,6 +647,10 @@ handle_new_output(struct wl_listener *listener, void *data)
     /* Register frame listener for diagnostic logging */
     c->frame.notify = handle_frame;
     wl_signal_add(&output->events.frame, &c->frame);
+
+    /* S14 P3: direct-scanout observability */
+    c->present.notify = handle_output_present;
+    wl_signal_add(&output->events.present, &c->present);
 
     /* Kick off the render loop — guarantees a first frame even if the
      * backend doesn't emit one spontaneously after the modeset */
@@ -785,6 +791,25 @@ handle_toplevel_destroy(struct wl_listener *listener, void *data)
     compositor_restack(c);
 }
 
+/* S14 P3: presentation events tell us how a frame reached the panel. Zero-copy
+ * means the output presented a client buffer without the renderer copying it,
+ * i.e. the direct-scanout path. Only frames actually presented are counted, so
+ * vsync-dropped commits cannot dilute the ratio. */
+static void
+handle_output_present(struct wl_listener *listener, void *data)
+{
+    struct playos_compositor *c = wl_container_of(listener, c, present);
+    struct wlr_output_event_present *ev = data;
+
+    if (!ev->presented)
+        return;
+
+    if (ev->flags & WLR_OUTPUT_PRESENT_ZERO_COPY)
+        c->present_zero_copy++;
+    else
+        c->present_copied++;
+}
+
 static void
 handle_frame(struct wl_listener *listener, void *data)
 {
@@ -815,10 +840,14 @@ handle_frame(struct wl_listener *listener, void *data)
     if (c->fps_window_start == 0.0)
         c->fps_window_start = now_s;
     if (now_s - c->fps_window_start >= 1.0) {
-        wlr_log(WLR_INFO, "fps shell=%u game=%u (commits/s)",
-                c->fps_commits_shell, c->fps_commits_game);
+        wlr_log(WLR_INFO,
+                "fps shell=%u game=%u (commits/s) present zero-copy=%u copied=%u",
+                c->fps_commits_shell, c->fps_commits_game,
+                c->present_zero_copy, c->present_copied);
         c->fps_commits_shell = 0;
         c->fps_commits_game = 0;
+        c->present_zero_copy = 0;
+        c->present_copied = 0;
         c->fps_window_start = now_s;
     }
 }

@@ -131,6 +131,14 @@ struct playos_compositor {
     unsigned                  fps_commits_game;
     double                    fps_window_start;   /* CLOCK_MONOTONIC seconds */
 
+    /* S14 P3: how the last second of frames reached the panel. "zero-copy"
+     * means the output presented a client buffer without the renderer copying
+     * it, i.e. the direct-scanout path (a plane took the buffer straight from
+     * the client). This is the claim the perf baseline could not verify. */
+    unsigned                  present_zero_copy;
+    unsigned                  present_copied;
+    struct wl_listener        present;
+
     int                       output_width;
     int                       output_height;
     int                       output_refresh_mhz;
